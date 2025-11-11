@@ -1,9 +1,11 @@
 // src/app/wallet/page.tsx
 'use client';
 
+// Prevent static generation and caching
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+// You can keep revalidate = 0 for clarity, it's safe:
 export const revalidate = 0;
-export const dynamicParams = true;
 
 import { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -45,6 +47,7 @@ function WalletContent() {
           cancelPath: '/wallet?deposit=cancel',
         }),
       });
+
       const data = await res.json();
       if (data?.hostedUrl) {
         window.location.href = data.hostedUrl;
@@ -67,7 +70,11 @@ function WalletContent() {
       <section className="mb-6 rounded-xl border border-white/10 bg-white/5 p-4">
         <div className="text-sm text-white/60">Current Balance</div>
         <div className="mt-1 text-2xl font-semibold text-white">
-          {balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+          {balance.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}{' '}
+          USDT
         </div>
       </section>
 
@@ -104,7 +111,7 @@ function WalletContent() {
 }
 
 export default function WalletPage() {
-  // Suspense requirement for useSearchParams in App Router
+  // Wrap in Suspense to satisfy Next.js for useSearchParams
   return (
     <Suspense fallback={<main className="p-8 text-white/70">Loading…</main>}>
       <WalletContent />
