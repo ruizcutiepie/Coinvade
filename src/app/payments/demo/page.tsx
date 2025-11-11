@@ -1,42 +1,32 @@
-'use client';
+// src/app/payments/demo/page.tsx
+import Script from 'next/script';
 
-import { useEffect } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+// Tell Next this page is dynamic so it won’t be statically pre-rendered
+export const dynamic = 'force-dynamic';
 
-export default function DemoCheckout() {
-  const search = useSearchParams();
-  const router = useRouter();
+export default function DemoCheckoutPage({
+  searchParams,
+}: {
+  searchParams: { success?: string };
+}) {
+  const isSuccess =
+    searchParams?.success === '1' ||
+    searchParams?.success === 'true' ||
+    searchParams?.success === 'success';
 
-  useEffect(() => {
-    const amount = Number(search.get('amount') || 0);
-    const success = search.get('success') || '/wallet?deposit=success';
-
-    // 1) create a pending deposit in our in-memory store
-    if (amount > 0) {
-      fetch('/api/wallet/deposits', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount,
-          txId: 'demo-' + Date.now(),
-        }),
-      }).catch(console.error);
-    }
-
-    // 2) pretend the hosted checkout finished & redirect back
-    const t = setTimeout(() => {
-      router.replace(success);
-    }, 1500);
-
-    return () => clearTimeout(t);
-  }, [search, router]);
+  const target = isSuccess ? '/wallet?deposit=success' : '/wallet?deposit=cancel';
 
   return (
-    <main className="flex min-h-[60vh] items-center justify-center text-white">
+    <main className="mx-auto flex min-h-[60vh] max-w-2xl items-center justify-center px-6 text-center">
       <div>
         <h1 className="text-2xl font-semibold">Demo Checkout</h1>
-        <p className="mt-2 text-white/70">Processing deposit…</p>
-        <p className="mt-2 text-white/50">You’ll be sent back to Wallet shortly.</p>
+        <p className="mt-2 text-white/70">Processing demo checkout…</p>
+        <p className="mt-2 text-white/50">You’ll be sent back to the wallet shortly.</p>
+
+        {/* Inline client-side redirect (works in a Server Component) */}
+        <Script id="demo-redirect">
+          {`setTimeout(function(){ window.location.href = '${target}'; }, 1500);`}
+        </Script>
       </div>
     </main>
   );
