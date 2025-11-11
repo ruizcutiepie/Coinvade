@@ -1,0 +1,115 @@
+/* Tailwind v4 entry */
+@import "tailwindcss";
+
+/* ---------- Theme Variables ---------- */
+:root {
+  --background: #0a0f16;
+  --surface: #12171e;
+  --surface-2: #0f141b;
+  --text: #d1e2f5;
+  --muted: #8aa0b5;
+  --neon: #00E0FF;
+  --neon-soft: rgba(0, 224, 255, 0.45);
+}
+
+html, body, #__next {
+  height: 100%;
+}
+
+/* Page background + base text */
+body {
+  color: var(--text);
+  background:
+    radial-gradient(1200px 400px at 50% -20%, rgba(0,224,255,0.08), transparent 50%) no-repeat,
+    radial-gradient(600px 200px at 80% -20%, rgba(0,224,255,0.06), transparent 50%) no-repeat,
+    var(--background);
+}
+
+/* ---------- Text & Glow ---------- */
+.neon-title {
+  text-shadow:
+    0 0 14px rgba(0, 224, 255, 0.55),
+    0 0 40px rgba(0, 224, 255, 0.35);
+}
+
+.neon-ring {
+  box-shadow:
+    inset 0 0 0 1px rgba(0,224,255,0.15),
+    0 0 18px rgba(0,224,255,0.18);
+}
+
+/* ---------- Buttons ---------- */
+.btn-neon {
+  border-radius: 0.75rem;           /* rounded-xl */
+  background-color: rgb(6 182 212); /* cyan-500 */
+  color: #000;
+  font-weight: 600;
+  box-shadow: 0 0 18px rgba(0, 224, 255, 0.35);
+  transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
+}
+.btn-neon:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+  box-shadow: 0 0 24px rgba(0,224,255,0.5);
+}
+
+/* Small pill blocks (e.g., quick amounts) */
+.pill {
+  background: var(--surface);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 0.75rem;           /* rounded-xl */
+  padding: 0.5rem 1rem;             /* px-4 py-2 */
+}
+
+/* ---------- Nav links ---------- */
+.nav-link {
+  padding: 0.5rem 0.75rem;          /* px-3 py-2 */
+  border-radius: 0.5rem;
+  color: var(--muted);
+  transition: all .12s ease;
+}
+.nav-link:hover {
+  color: #fff;
+  box-shadow: 0 0 14px rgba(0,224,255,.35);
+  background: rgba(0,224,255,.06);
+}
+
+/* ------------ Modal (pure CSS, no @apply) ------------ */
+/* Dark blurred layer behind the card */
+.modal-overlay {
+  position: fixed;
+  inset: 0;                         /* top:0 right:0 bottom:0 left:0 */
+  background: rgba(0,0,0,0.70);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;                    /* keep some gutter on mobile */
+}
+
+/* Centered card */
+.modal-card {
+  position: relative;
+  width: min(92vw, 42rem);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 1rem;              /* ~ rounded-2xl */
+  padding: 1.5rem;                  /* p-6 */
+  box-shadow: 0 0 30px rgba(0, 224, 255, 0.18);
+  z-index: 50;
+}
+
+/* Close “X” in the top-right */
+.close-x {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  color: rgba(255,255,255,0.60);
+  cursor: pointer;
+  transition: color .12s ease;
+  z-index: 60;
+}
+.close-x:hover { color: #fff; }
