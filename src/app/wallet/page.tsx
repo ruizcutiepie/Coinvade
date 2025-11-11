@@ -1,43 +1,19 @@
 // src/app/wallet/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const dynamicParams = true;
+
+import { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 type DepositAmount = 25 | 50 | 100;
 
-type Deposit = {
-  id: string;
-  amount: number;
-  status: 'pending' | 'approved' | 'rejected';
-  createdAt: string;
-};
-
-type Wallet = {
-  balance: number;
-  deposits: Deposit[];
-};
-
-export default function WalletPage() {
+function WalletContent() {
+  const [balance] = useState<number>(1000);
   const search = useSearchParams();
   const depositStatus = search.get('deposit'); // "success" | "cancel" | null
-
-  const [wallet, setWallet] = useState<Wallet | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  async function fetchWallet() {
-    try {
-      const res = await fetch('/api/wallet', { cache: 'no-store' });
-      const data = (await res.json()) as Wallet;
-      setWallet(data);
-    } catch (e) {
-      console.error('Failed to fetch wallet', e);
-    }
-  }
-
-  useEffect(() => {
-    fetchWallet();
-  }, []);
 
   const Banner = useMemo(() => {
     if (depositStatus === 'success') {
@@ -57,108 +33,81 @@ export default function WalletPage() {
     return null;
   }, [depositStatus]);
 
-  // Creates a PENDING deposit that the admin will later approve.
   async function handleDeposit(amount: DepositAmount) {
     try {
-      setLoading(true);
-      const res = await fetch('/api/wallet', {
+      const res = await fetch('/api/payments/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount }),
+        body: JSON.stringify({
+          amount,
+          userId: 'demo-user',
+          successPath: '/wallet?deposit=success',
+          cancelPath: '/wallet?deposit=cancel',
+        }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        console.error('Create deposit failed:', err);
-        alert('Failed to create deposit.');
+      const data = await res.json();
+      if (data?.hostedUrl) {
+        window.location.href = data.hostedUrl;
+      } else {
+        alert('Failed to start deposit, see console.');
+        console.log('Create payment response:', data);
       }
-      await fetchWallet();
     } catch (err) {
       console.error(err);
-      alert('Network error while creating deposit.');
-    } finally {
-      setLoading(false);
+      alert('Network error while starting deposit.');
     }
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8 text-white">
-      <h1 className="mb-6 text-3xl font-bold">Wallet</h1>
+    <main className="mx-auto max-w-3xl px-4 py-8">
+      <h1 className="mb-6 text-3xl font-bold text-white">Wallet</h1>
 
       {Banner}
 
-      {/* Balance */}
       <section className="mb-6 rounded-xl border border-white/10 bg-white/5 p-4">
         <div className="text-sm text-white/60">Current Balance</div>
-        <div className="mt-1 text-2xl font-semibold">
-          {wallet
-            ? `${wallet.balance.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })} USDT`
-            : '...'}
+        <div className="mt-1 text-2xl font-semibold text-white">
+          {balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
         </div>
       </section>
 
-      {/* Deposit buttons -> create pending request for admin */}
-      <section className="mb-6 rounded-xl border border-white/10 bg-white/5 p-4">
-        <div className="mb-3 text-sm text-white/60">Deposit (Admin approval required)</div>
+      <section className="rounded-xl border border-white/10 bg-white/5 p-4">
+        <div className="mb-3 text-sm text-white/60">Deposit</div>
+
         <div className="flex flex-wrap gap-2">
-          {[25, 50, 100].map((amt) => (
-            <button
-              key={amt}
-              disabled={loading}
-              onClick={() => handleDeposit(amt as DepositAmount)}
-              className="rounded-xl border border-cyan-400/30 bg-cyan-600/80 px-4 py-2 font-semibold text-black hover:brightness-105 disabled:opacity-60"
-            >
-              Deposit ${amt}
-            </button>
-          ))}
+          <button
+            onClick={() => handleDeposit(25)}
+            className="rounded-xl border border-cyan-400/30 bg-cyan-600/80 px-4 py-2 font-semibold text-black hover:brightness-105"
+          >
+            Deposit $25
+          </button>
+          <button
+            onClick={() => handleDeposit(50)}
+            className="rounded-xl border border-cyan-400/30 bg-cyan-600/80 px-4 py-2 font-semibold text-black hover:brightness-105"
+          >
+            Deposit $50
+          </button>
+          <button
+            onClick={() => handleDeposit(100)}
+            className="rounded-xl border border-cyan-400/30 bg-cyan-600/80 px-4 py-2 font-semibold text-black hover:brightness-105"
+          >
+            Deposit $100
+          </button>
         </div>
 
         <div className="mt-6 text-sm text-white/50">
           Withdrawals are processed by the admin wallet after verification.
         </div>
       </section>
-
-      {/* Pending & history */}
-      <section className="rounded-xl border border-white/10 bg-white/5 p-4">
-        <h2 className="mb-3 text-lg font-semibold">Deposits</h2>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="text-white/70">
-                <th className="py-2">ID</th>
-                <th className="py-2">Amount</th>
-                <th className="py-2">Status</th>
-                <th className="py-2">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {wallet?.deposits?.length ? (
-                wallet.deposits.map((d) => (
-                  <tr key={d.id} className="border-t border-white/10">
-                    <td className="py-2">{d.id.slice(0, 6)}…</td>
-                    <td className="py-2">${d.amount}</td>
-                    <td className="py-2">
-                      {d.status === 'pending' && <span className="text-amber-300">Pending</span>}
-                      {d.status === 'approved' && <span className="text-teal-300">Approved</span>}
-                      {d.status === 'rejected' && <span className="text-rose-300">Rejected</span>}
-                    </td>
-                    <td className="py-2">{new Date(d.createdAt).toLocaleString()}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={4} className="py-4 text-white/50">
-                    No deposits yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
     </main>
+  );
+}
+
+export default function WalletPage() {
+  // Suspense requirement for useSearchParams in App Router
+  return (
+    <Suspense fallback={<main className="p-8 text-white/70">Loading…</main>}>
+      <WalletContent />
+    </Suspense>
   );
 }
