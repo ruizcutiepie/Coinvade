@@ -11,6 +11,11 @@ function symbolToCoingeckoId(symbol: string): string | null {
     BTCUSDT: 'bitcoin',
     ETHUSDT: 'ethereum',
     SOLUSDT: 'solana',
+    XRPUSDT: 'ripple',
+    ADAUSDT: 'cardano',
+    BNBUSDT: 'binancecoin',
+    DOGEUSDT: 'dogecoin',
+    DOTUSDT: 'polkadot',
   };
   return map[symbol.toUpperCase()] ?? null;
 }
@@ -36,7 +41,7 @@ async function fetchWithRetry(id: string, attempts = 3) {
       return await fetchUpstream(id);
     } catch (e) {
       lastErr = e;
-      await new Promise(r => setTimeout(r, 250 * 2 ** i)); // 250ms, 500ms, 1s
+      await new Promise((r) => setTimeout(r, 250 * 2 ** i)); // 250ms, 500ms, 1s
     }
   }
   throw lastErr;
@@ -69,6 +74,9 @@ export async function GET(req: Request) {
       res.headers.set('Cache-Control', 'no-store');
       return res;
     }
-    return NextResponse.json({ error: 'Upstream unavailable' }, { status: 502 });
+    return NextResponse.json(
+      { error: 'Upstream unavailable' },
+      { status: 502 }
+    );
   }
 }

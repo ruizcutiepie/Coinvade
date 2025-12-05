@@ -1,194 +1,397 @@
 // src/app/components/CountdownTrade.tsx
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Modal from './Modal';
 
 type Direction = 'long' | 'short';
+type TradeStatus = 'idle' | 'running' | 'settled';
 
-type Props = {
-  open: boolean;
-  onClose: () => void;
-  onFinish?: (result: {
-    pair: string; direction: Direction; amount: number; duration: number;
-    entryPrice: number | null; exitPrice: number | null; won: boolean; payout: number; ts: number;
-  }) => void;
-  pair: string;          // "BTC/USDT" or "BTCUSDT"
-  amount: number;        // USDT
+type TradeFinishPayload = {
+  pair: string;
   direction: Direction;
-  duration: number;      // seconds
+  amount: number;
+  duration: number;
+  entryPrice: number | null;
+  exitPrice: number | null;
+  won: boolean;
+  payout: number;
+  ts: number;
 };
 
-function fmt(n: number, decimals = 2) {
-  return n.toLocaleString(undefined, { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
-}
-function toExchangeSymbol(input: string) {
-  return input.toUpperCase().replace('/', '');
-}
+type CountdownTradeProps = {
+  open: boolean;
+  onClose: () => void;
+  pair: string;
+  amount: number;
+  duration: number; // seconds
+  direction: Direction;
+  onFinish?: (result: TradeFinishPayload) => void;
+};
 
-export default function CountdownTrade({ open, onClose, onFinish, pair, amount, direction, duration }: Props) {
+const CountdownTrade: React.FC<CountdownTradeProps> = ({
+  open,
+  onClose,
+  pair,
+  amount,
+  duration,
+  direction,
+  onFinish,
+}) => {
   const [timeLeft, setTimeLeft] = useState(duration);
-  const [done, setDone] = useState(false);
-  const [won, setWon] = useState<boolean | null>(null);
-  const [payout, setPayout] = useState(0);
+  const [status, setStatus] = useState<TradeStatus>('idle');
 
   const [entryPrice, setEntryPrice] = useState<number | null>(null);
-  const [livePrice, setLivePrice] = useState<number | null>(null);
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  const [exitPrice, setExitPrice] = useState<number | null>(null);
 
-  const endAtRef = useRef<number | null>(null);
-  const symbol = useMemo(() => toExchangeSymbol(pair), [pair]);
-
-  // countdown
-  useEffect(() => {
-    if (!open) return;
-    if (!isFinite(amount) || amount <= 0) return;
-    if (!isFinite(duration) || duration <= 0) return;
-
-    setDone(false);
-    setWon(null);
-    setPayout(0);
-    setTimeLeft(duration);
-    endAtRef.current = Date.now() + duration * 1000;
-
-    const t = setInterval(() => {
-      const remaining = Math.max(0, Math.ceil(((endAtRef.current ?? 0) - Date.now()) / 1000));
-      setTimeLeft(remaining);
-      if (remaining <= 0) {
-        clearInterval(t);
-        const ep = entryPrice;
-        const lp = livePrice;
-        let didWin: boolean;
-        let out = 0;
-
-        if (typeof ep === 'number' && typeof lp === 'number') {
-          didWin = direction === 'long' ? lp >= ep : lp <= ep;
-          out = didWin ? amount * 1.8 : 0;
-        } else {
-          didWin = Math.random() > 0.5;
-          out = didWin ? amount * 1.8 : 0;
-        }
-
-        setWon(didWin);
-        setPayout(out);
-        setDone(true);
-
-        // notify parent
-        onFinish?.({
-          pair: symbol,
-          direction,
-          amount,
-          duration,
-          entryPrice: ep ?? 0,
-          exitPrice: lp ?? 0,
-          won: didWin,
-          payout: out,
-          ts: Date.now(),
-        });
-      }
-    }, 250);
-
-    return () => clearInterval(t);
-  }, [open, amount, duration, direction, entryPrice, livePrice, onFinish, symbol]);
-
-  // price polling
-  useEffect(() => {
-    if (!open) return;
-    let stopped = false;
-
-    const load = async () => {
-      try {
-        const res = await fetch(`/api/price?symbol=${symbol}`, { cache: 'no-store' });
-        const data = await res.json();
-        if (!stopped && typeof data?.price === 'number') {
-          setLivePrice(data.price);
-          setEntryPrice((prev) => (prev == null ? data.price : prev));
-        }
-      } catch {}
-    };
-
-    load();
-    const id = setInterval(load, 3000);
-    return () => {
-      stopped = true;
-      clearInterval(id);
-    };
-  }, [open, symbol]);
-
-  const canClose = done;
-
-  const headRight = useMemo(
-    () => (
-      <div className="absolute right-6 top-6 select-none text-[var(--neon)] font-semibold">
-        {livePrice == null ? '…' : fmt(livePrice, livePrice >= 100 ? 2 : 4)}
-      </div>
-    ),
-    [livePrice]
+  const [priceDirection, setPriceDirection] = useState<'up' | 'down' | 'flat'>(
+    'flat'
   );
+  const [pnl, setPnl] = useState<number | null>(null);
 
-  // visuals
-  const delta = useMemo(() => {
-    if (entryPrice == null || livePrice == null) return null;
-    const diff = livePrice - entryPrice;
-    const pct = (diff / entryPrice) * 100;
-    return { diff, pct };
-  }, [entryPrice, livePrice]);
-  const deltaClass = delta == null ? 'text-white/60' : delta.diff >= 0 ? 'text-emerald-400' : 'text-rose-400';
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const priceRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearTimers = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (priceRef.current) clearInterval(priceRef.current);
+    timerRef.current = null;
+    priceRef.current = null;
+  };
+
+  // --- REAL PRICE FETCH (Binance public ticker) ---
+  const fetchPrice = async () => {
+    try {
+      const res = await fetch(
+        `https://api.binance.com/api/v3/ticker/price?symbol=${pair}`
+      );
+      if (!res.ok) return;
+
+      const data = (await res.json()) as { price: string };
+      const price = Number(data.price);
+      if (!Number.isFinite(price)) return;
+
+      setCurrentPrice((prev) => {
+        if (prev == null) {
+          // first tick becomes entry
+          setEntryPrice(price);
+          setPriceDirection('flat');
+          return price;
+        }
+
+        if (price > prev) setPriceDirection('up');
+        else if (price < prev) setPriceDirection('down');
+        else setPriceDirection((old) => old);
+
+        return price;
+      });
+    } catch (err) {
+      console.error('[CountdownTrade] price fetch failed', err);
+    }
+  };
+
+  // Reset on open
+  useEffect(() => {
+    if (!open) {
+      clearTimers();
+      return;
+    }
+
+    setTimeLeft(duration);
+    setStatus('running');
+    setEntryPrice(null);
+    setCurrentPrice(null);
+    setExitPrice(null);
+    setPnl(null);
+    setPriceDirection('flat');
+
+    clearTimers();
+
+    // countdown timer
+    timerRef.current = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearTimers();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // price polling
+    fetchPrice(); // initial
+    priceRef.current = setInterval(fetchPrice, 1500);
+
+    return () => {
+      clearTimers();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, duration, pair, direction, amount]);
+
+  // Settle when timer hits zero
+  useEffect(() => {
+    if (status === 'running' && timeLeft === 0) {
+      handleSettle();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeLeft, status]);
+
+  const handleSettle = () => {
+    clearTimers();
+
+    const usedEntry = entryPrice ?? currentPrice ?? 0;
+    const usedExit = currentPrice ?? entryPrice ?? 0;
+
+    setExitPrice(usedExit);
+
+    const isWin =
+      direction === 'long' ? usedExit > usedEntry : usedExit < usedEntry;
+
+    const payout = isWin ? amount * 1.8 : 0;
+    const pnlValue = payout - amount;
+
+    setPnl(pnlValue);
+    setStatus('settled');
+
+    if (onFinish) {
+      const payload: TradeFinishPayload = {
+        pair,
+        direction,
+        amount,
+        duration,
+        entryPrice: usedEntry,
+        exitPrice: usedExit,
+        won: isWin,
+        payout,
+        ts: Date.now(),
+      };
+      onFinish(payload);
+    }
+  };
+
+  const handleClose = () => {
+    clearTimers();
+    setStatus('idle');
+    setPnl(null);
+    setExitPrice(null);
+    onClose();
+  };
+
+  // --- TIMER CIRCLE ---
+  const radius = 70;
+  const circumference = 2 * Math.PI * radius;
+
+  const progress =
+    duration > 0 && (status === 'running' || status === 'settled')
+      ? ((duration - timeLeft) / duration) * circumference
+      : 0;
+
+  const formattedTime = `${Math.floor(timeLeft / 60)
+    .toString()
+    .padStart(2, '0')}:${(timeLeft % 60).toString().padStart(2, '0')}`;
+
+  const displayPrice =
+    status === 'settled'
+      ? exitPrice ?? currentPrice ?? entryPrice ?? 0
+      : currentPrice ?? entryPrice ?? 0;
+
+  const effectiveEntry = entryPrice ?? displayPrice;
+
+  const tickerColorClass =
+    priceDirection === 'up'
+      ? 'text-emerald-400'
+      : priceDirection === 'down'
+      ? 'text-red-400'
+      : 'text-slate-200';
+
+  const pnlColorClass =
+    pnl != null && pnl > 0
+      ? 'text-emerald-400'
+      : pnl != null && pnl < 0
+      ? 'text-red-400'
+      : 'text-slate-200';
+
+  const pairLabel = pair.includes('/')
+    ? pair
+    : `${pair.replace('USDT', '')}/USDT`;
 
   return (
-    <Modal open={open} onClose={canClose ? onClose : undefined} title="Trade Running">
-      {headRight}
-
-      <div className="mb-4 text-sm text-white/60">
-        Pair:&nbsp;
-        <span className="text-white font-medium">
-          {pair.includes('/') ? pair.toUpperCase() : `${pair.replace('USDT', '')}/USDT`}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Box label="Amount">{isFinite(amount) ? `${fmt(amount)} USDT` : '--'}</Box>
-        <Box label="Direction">{direction === 'long' ? 'Buy (Long)' : 'Sell (Short)'}</Box>
-        <Box label="Entry Price">{entryPrice == null ? '…' : fmt(entryPrice, entryPrice >= 100 ? 2 : 4)}</Box>
-        <Box label="Current Price">{livePrice == null ? '…' : fmt(livePrice, livePrice >= 100 ? 2 : 4)}</Box>
-        <Box label="Time Left">{isFinite(timeLeft) ? `${Math.floor(timeLeft / 60)}:${String(timeLeft % 60).padStart(2, '0')}` : '--:--'}</Box>
-        <Box label="Change">
-          {delta == null ? '…' : (
-            <span className={`font-semibold ${deltaClass}`}>
-              {delta.diff >= 0 ? '+' : ''}{fmt(delta.diff, livePrice! >= 100 ? 2 : 4)} ({delta.pct >= 0 ? '+' : ''}{fmt(delta.pct, 2)}%)
+    <Modal
+      open={open}
+      onClose={handleClose}
+      title={`${pair} ${direction.toUpperCase()} Trade`}
+    >
+      <div className="flex flex-col gap-5 text-slate-100">
+        {/* LIVE TICKER STRIP */}
+        <div className="flex items-center justify-between rounded-xl bg-slate-950/80 border border-cyan-500/20 px-4 py-2 text-xs md:text-sm">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-semibold uppercase tracking-[0.16em] text-slate-200">
+              Live Ticker
             </span>
-          )}
-        </Box>
-        <Box label="Payout (demo)">{isFinite(payout) ? `${fmt(payout)} USDT` : '--'}</Box>
-      </div>
+            <span className="text-slate-400">• {pairLabel}</span>
+          </div>
+          <div className={`font-mono font-semibold ${tickerColorClass}`}>
+            {displayPrice.toFixed(2)}
+          </div>
+        </div>
 
-      <div className={`mt-6 rounded-xl border px-4 py-4 ${done ? (won ? 'border-teal-700/40 bg-teal-900/20' : 'border-rose-700/40 bg-rose-900/20') : 'border-white/10 bg-white/5'} text-center`}>
-        {done ? (
-          <span className={`text-lg font-semibold ${won ? 'text-teal-300' : 'text-rose-300'}`}>
-            {won ? 'You won!' : 'You lost.'}
-          </span>
-        ) : (
-          <span className="text-white/70">Running…</span>
-        )}
-      </div>
+        {/* MAIN GRID */}
+        <div className="grid grid-cols-1 md:grid-cols-[auto,1fr] gap-6 items-center">
+          {/* NEON TIMER */}
+          <div className="flex justify-center">
+            <div className="relative flex items-center justify-center">
+              <svg
+                width={180}
+                height={180}
+                viewBox="0 0 180 180"
+                className="neon-timer"
+              >
+                <circle
+                  cx="90"
+                  cy="90"
+                  r={radius}
+                  stroke="rgba(15,23,42,0.9)"
+                  strokeWidth="10"
+                  fill="transparent"
+                />
+                <circle
+                  cx="90"
+                  cy="90"
+                  r={radius}
+                  stroke="rgba(45,212,191,0.25)"
+                  strokeWidth="10"
+                  fill="transparent"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={0}
+                  className="neon-track"
+                />
+                <circle
+                  cx="90"
+                  cy="90"
+                  r={radius}
+                  stroke="rgb(45,212,191)"
+                  strokeWidth="10"
+                  fill="transparent"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={circumference - progress}
+                  strokeLinecap="round"
+                  className="neon-progress"
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-[11px] uppercase tracking-[0.16em] text-slate-400 mb-1">
+                  Time Left
+                </span>
+                <span className="font-mono text-2xl md:text-3xl font-semibold text-cyan-300">
+                  {formattedTime}
+                </span>
+                <span className="mt-1 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-3 py-0.5 text-[10px] uppercase tracking-[0.18em] text-cyan-300">
+                  {status === 'settled' ? 'Settled' : 'In Contract'}
+                </span>
+              </div>
+            </div>
+          </div>
 
-      <div className="mt-6 flex justify-end">
-        <button
-          onClick={onClose}
-          disabled={!canClose}
-          className={`px-5 py-2 rounded-xl border transition ${canClose ? 'border-white/20 hover:border-white/40 text-white' : 'border-white/10 text-white/40 cursor-not-allowed'}`}
-        >
-          Close
-        </button>
+          {/* INFO + SETTLEMENT */}
+          <div className="space-y-4">
+            {/* Trade summary */}
+            <div className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-xs md:text-sm">
+              <div className="flex justify-between mb-1.5">
+                <span className="text-slate-400">Pair</span>
+                <span className="font-semibold text-slate-100">
+                  {pairLabel}
+                </span>
+              </div>
+              <div className="flex justify-between mb-1.5">
+                <span className="text-slate-400">Direction</span>
+                <span
+                  className={
+                    direction === 'long'
+                      ? 'font-semibold text-emerald-400'
+                      : 'font-semibold text-red-400'
+                  }
+                >
+                  {direction.toUpperCase()}
+                </span>
+              </div>
+              <div className="flex justify-between mb-1.5">
+                <span className="text-slate-400">Stake</span>
+                <span className="font-semibold text-slate-100">
+                  ${amount.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between mb-1.5">
+                <span className="text-slate-400">Entry Price</span>
+                <span className="font-mono text-slate-100">
+                  {effectiveEntry.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">
+                  {status === 'settled' ? 'Exit Price' : 'Current Price'}
+                </span>
+                <span className="font-mono text-slate-100">
+                  {displayPrice.toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            {/* Settlement window – only amount, no win/loss words */}
+            {status === 'settled' && pnl != null && (
+              <div className="rounded-2xl border border-cyan-500/30 bg-slate-950/90 px-4 py-3 text-xs md:text-sm shadow-[0_0_24px_rgba(6,182,212,0.35)]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                    Settlement
+                  </span>
+                  <span
+                    className={`font-mono text-base md:text-lg font-semibold ${pnlColorClass}`}
+                  >
+                    {pnl > 0 ? '+' : ''}
+                    {pnl.toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="flex justify-between text-[11px] md:text-xs text-slate-300 mb-1">
+                  <span>Entry</span>
+                  <span className="font-mono">
+                    {effectiveEntry.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-[11px] md:text-xs text-slate-300 mb-1">
+                  <span>Exit</span>
+                  <span className="font-mono">
+                    {displayPrice.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-[11px] md:text-xs text-slate-300">
+                  <span>Stake</span>
+                  <span className="font-mono">
+                    ${amount.toFixed(2)}
+                  </span>
+                </div>
+
+                <button
+                  onClick={handleClose}
+                  className="mt-3 w-full rounded-xl border border-cyan-400/60 bg-cyan-500/10 py-1.5 text-[11px] uppercase tracking-[0.18em] text-cyan-200 hover:bg-cyan-500/20 transition"
+                >
+                  Close
+                </button>
+              </div>
+            )}
+
+            {status !== 'settled' && (
+              <p className="text-[11px] text-slate-500">
+                Contract is active. Settlement window will appear
+                automatically when the timer reaches zero.
+              </p>
+            )}
+          </div>
+        </div>
       </div>
     </Modal>
   );
-}
+};
 
-function Box({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-      <div className="text-sm text-white/60">{label}</div>
-      <div className="mt-1 text-lg font-semibold text-white">{children}</div>
-    </div>
-  );
-}
+export default CountdownTrade;

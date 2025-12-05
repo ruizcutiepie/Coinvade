@@ -1,0 +1,14 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="eth-grad" cx="30%" cy="20%" r="80%">
+      <stop offset="0%" stop-color="#ECEBFF"/>
+      <stop offset="50%" stop-color="#627EEA"/>
+      <stop offset="100%" stop-color="#1C275C"/>
+    </radialGradient>
+  </defs>
+  <circle cx="32" cy="32" r="30" fill="url(#eth-grad)"/>
+  <polygon points="32,10 20,30 32,24" fill="#ffffff"/>
+  <polygon points="32,10 44,30 32,24" fill="#d0d6ff"/>
+  <polygon points="32,26 20,32 32,54" fill="#d0d6ff"/>
+  <polygon points="32,26 44,32 32,54" fill="#ffffff"/>
+</svg>

@@ -1,0 +1,126 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// =======================
+// MODELS
+// =======================
+
+// Basic user (auth + relations)
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String?
+  role         String   @default("USER")
+  createdAt    DateTime @default(now())
+
+  wallets      Wallet[]
+  trades       Trade[]
+  deposits     DepositIntent[]
+  withdrawals  WithdrawRequest[]
+}
+
+// One wallet per user per coin symbol (BTC, ETH, USDT, etc)
+model Wallet {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+
+  /// Example: "BTC", "ETH", "USDT"
+  coin      String
+  balance   Float    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, coin]) // each user+coin only once
+}
+
+// Trade history (for the Trade page)
+model Trade {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+
+  /// Example: "BTCUSDT"
+  pair      String
+
+  /// "LONG" or "SHORT" (we'll store uppercase in code)
+  direction String
+
+  /// Stake in USDT
+  amount    Float
+
+  /// Contract duration in seconds
+  duration  Int
+
+  // Prices
+  entryPrice Float?
+  exitPrice  Float?
+  closePrice Float?      // final price used to settle
+
+  // Result
+  won        Boolean?    // true = win, false = loss, null = not decided
+  payout     Float   @default(0)
+
+  createdAt  DateTime @default(now())
+  resolvedAt DateTime?
+}
+
+// Deposit intents (client sends money to your fixed addresses)
+model DepositIntent {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+
+  /// "BTC", "ETH", "USDT", etc
+  coin      String
+
+  /// Example: "Bitcoin mainnet", "TRON (TRC20)"
+  network   String
+
+  /// Optional blockchain tx hash once you see it on-chain
+  txHash    String?
+
+  /// Optional: amount you confirm on-chain
+  amount    Float?
+
+  /// "PENDING" | "CONFIRMED" | "FAILED"
+  status    String   @default("PENDING")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Withdraw requests (user gives payout address)
+model WithdrawRequest {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+
+  /// "BTC", "ETH", "USDT", etc
+  coin      String
+
+  /// Example: "Bitcoin mainnet", "TRON (TRC20)"
+  network   String
+
+  /// User’s payout address
+  address   String
+
+  amount    Float
+  note      String?
+
+  /// "PENDING" | "APPROVED" | "REJECTED" | "PAID"
+  status    String   @default("PENDING")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
