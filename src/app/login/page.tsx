@@ -1,13 +1,11 @@
-// src/app/login/page.tsx
 'use client';
 
 import React, { useState } from 'react';
 import { signIn } from 'next-auth/react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
   const router = useRouter();
-  const params = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -19,71 +17,76 @@ export default function LoginPage() {
     setError(null);
 
     const res = await signIn('credentials', {
+      redirect: false,
       email,
       password,
-      redirect: false,
     });
 
+    setSubmitting(false);
+
     if (res?.error) {
-      setError('Invalid email or password');
-      setSubmitting(false);
+      setError('Invalid email or password.');
       return;
     }
 
-    const callbackUrl = params.get('callbackUrl') ?? '/trade';
-    router.push(callbackUrl);
+    // ✅ Successful login – send user to /trade (or wherever you want)
+    router.push('/trade');
   }
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-black text-white px-4">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-2xl border border-white/10 bg-black/60 p-6 shadow-[0_0_30px_rgba(0,0,0,0.7)] space-y-4"
-      >
-        <h1 className="text-xl font-semibold text-center text-[var(--neon)]">
-          Log in to Coinvade
+      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-black/60 p-6 shadow-[0_0_40px_rgba(0,0,0,.7)]">
+        <h1 className="mb-2 text-center text-2xl font-semibold tracking-wide text-[var(--neon)]">
+          COINVADE LOGIN
         </h1>
-
-        {error && (
-          <div className="rounded-lg border border-red-500/60 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-            {error}
-          </div>
-        )}
-
-        <div className="space-y-1 text-sm">
-          <label className="block text-xs text-white/60">Email</label>
-          <input
-            type="email"
-            className="w-full rounded-lg border border-white/20 bg-black/50 px-3 py-2 text-sm outline-none"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </div>
-
-        <div className="space-y-1 text-sm">
-          <label className="block text-xs text-white/60">Password</label>
-          <input
-            type="password"
-            className="w-full rounded-lg border border-white/20 bg-black/50 px-3 py-2 text-sm outline-none"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </div>
-
-        <button
-          disabled={submitting}
-          className="mt-2 w-full rounded-xl bg-cyan-500/90 py-2 text-sm font-semibold text-black shadow-[0_0_18px_rgba(34,211,238,0.6)] disabled:opacity-60"
-        >
-          {submitting ? 'Signing in…' : 'Log in'}
-        </button>
-
-        <p className="text-[11px] text-center text-white/50">
-          Need an account?{' '}
-          <a href="/register" className="text-cyan-300 hover:underline">
-            Sign up
-          </a>
+        <p className="mb-6 text-center text-sm text-white/60">
+          Sign in to access your trading dashboard.
         </p>
-      </form>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs text-white/60">
+              Email
+            </label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-xl border border-white/15 bg-black/70 px-3 py-2 text-sm outline-none focus:border-cyan-400/70"
+              placeholder="you@example.com"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-white/60">
+              Password
+            </label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full rounded-xl border border-white/15 bg-black/70 px-3 py-2 text-sm outline-none focus:border-cyan-400/70"
+              placeholder="••••••••"
+            />
+          </div>
+
+          {error && (
+            <div className="rounded-xl border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="mt-2 w-full rounded-xl bg-cyan-500 py-2.5 text-sm font-semibold text-black shadow-[0_0_24px_rgba(34,211,238,.7)] transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {submitting ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+      </div>
     </main>
   );
 }
