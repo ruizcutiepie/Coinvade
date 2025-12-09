@@ -24,14 +24,13 @@ async function getCurrentUser() {
   };
 }
 
-// 🔹 GET = fetch current user wallet + deposits
+// GET: current user's wallet + deposits
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Ensure the user has at least one USDT wallet with 0 starting balance
   let wallet = await prisma.wallet.findFirst({
     where: { userId: user.id, coin: "USDT" },
   });
@@ -41,7 +40,7 @@ export async function GET() {
       data: {
         userId: user.id,
         coin: "USDT",
-        balance: 0, // 👈 no more demo 1000 balance
+        balance: 0,
       },
     });
   }
@@ -54,7 +53,6 @@ export async function GET() {
   const depositsDto: DepositDto[] = deposits.map((d) => ({
     id: d.id,
     amount: d.amount ?? 0,
-    // Map Prisma status ("PENDING" | "CONFIRMED" | "FAILED") to old lowercase values
     status:
       d.status === "PENDING"
         ? "pending"
@@ -70,7 +68,7 @@ export async function GET() {
   });
 }
 
-// 🔹 POST = create a new deposit intent for the current user
+// POST: create deposit intent
 export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) {
@@ -86,7 +84,7 @@ export async function POST(req: Request) {
     data: {
       userId: user.id,
       coin: "USDT",
-      network: "Demo network", // TODO: replace with real network selector later
+      network: "Demo network",
       amount,
       status: "PENDING",
     },
@@ -102,7 +100,7 @@ export async function POST(req: Request) {
   return NextResponse.json(dto);
 }
 
-// 🔹 PUT = admin approves / rejects a deposit
+// PUT: admin approve / reject deposit
 export async function PUT(req: Request) {
   const user = await getCurrentUser();
   if (!user) {
@@ -135,13 +133,11 @@ export async function PUT(req: Request) {
   }
 
   if (action === "approve") {
-    // 1) Mark deposit as CONFIRMED
     const updatedDep = await prisma.depositIntent.update({
       where: { id },
       data: { status: "CONFIRMED" },
     });
 
-    // 2) Ensure user wallet exists
     let wallet = await prisma.wallet.findFirst({
       where: { userId: dep.userId, coin: dep.coin },
     });
@@ -156,7 +152,6 @@ export async function PUT(req: Request) {
       });
     }
 
-    // 3) Credit wallet balance
     await prisma.wallet.update({
       where: { id: wallet.id },
       data: {
@@ -173,7 +168,6 @@ export async function PUT(req: Request) {
     return NextResponse.json(dto);
   }
 
-  // action === "reject"
   const rejectedDep = await prisma.depositIntent.update({
     where: { id },
     data: { status: "FAILED" },
