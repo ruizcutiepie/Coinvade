@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import authOptions from '@/lib/auth';
+import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 
-export async function GET() {
-  const session = await getServerSession(authOptions as any);
-  const user = (session as any)?.user;
+// GET: list withdrawals
+export async function GET(req: Request) {
+  const session = await getServerSession(authOptions);
+
+  const user = session?.user as any;
 
   if (!user || user.role !== 'ADMIN') {
     return NextResponse.json(
@@ -16,18 +18,20 @@ export async function GET() {
 
   const withdrawals = await prisma.withdrawRequest.findMany({
     include: {
-      user: { select: { id: true, email: true } },
+      user: {
+        select: { id: true, email: true },
+      },
     },
     orderBy: { createdAt: 'desc' },
-    take: 200,
   });
 
   return NextResponse.json({ ok: true, withdrawals });
 }
 
+// PUT: approve / reject / paid
 export async function PUT(req: Request) {
-  const session = await getServerSession(authOptions as any);
-  const user = (session as any)?.user;
+  const session = await getServerSession(authOptions);
+  const user = session?.user as any;
 
   if (!user || user.role !== 'ADMIN') {
     return NextResponse.json(
@@ -36,16 +40,22 @@ export async function PUT(req: Request) {
     );
   }
 
-  const { id, action } = await req.json();
+  const body = await req.json();
+  const { id, action } = body;
 
-  const statusMap: Record<string, string> = {
-    approve: 'APPROVED',
-    reject: 'REJECTED',
-    paid: 'PAID',
-  };
+  if (!id || !action) {
+    return NextResponse.json(
+      { ok: false, error: 'Invalid payload' },
+      { status: 400 }
+    );
+  }
 
-  const nextStatus = statusMap[action];
-  if (!nextStatus) {
+  let status: string;
+
+  if (action === 'approve') status = 'APPROVED';
+  else if (action === 'reject') status = 'REJECTED';
+  else if (action === 'paid') status = 'PAID';
+  else {
     return NextResponse.json(
       { ok: false, error: 'Invalid action' },
       { status: 400 }
@@ -54,7 +64,7 @@ export async function PUT(req: Request) {
 
   const withdrawal = await prisma.withdrawRequest.update({
     where: { id },
-    data: { status: nextStatus },
+    data: { status },
     include: {
       user: { select: { id: true, email: true } },
     },
