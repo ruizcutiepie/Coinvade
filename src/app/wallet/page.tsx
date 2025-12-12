@@ -6,7 +6,7 @@ import Link from 'next/link';
 
 import useLocalNumber from '../components/useLocalNumber';
 import useLocalJson from '../components/useLocalJson';
-import { useLang, LANG_OPTIONS, tr, type LangCode } from '../components/useLang';
+import { useLang, tr } from '../components/useLang';
 
 type Coin =
   | 'BTC'
@@ -152,7 +152,6 @@ const PARTNER_CHANNELS = [
 
 export default function WalletPage() {
   // ✅ IMPORTANT: no demo default. Start from 0.
-  // This key is shared across pages, so we keep it, but the default is now 0.
   const [balance, setBalance] = useLocalNumber('coinvade.balance', 0);
 
   // ✅ IMPORTANT: no seeded demo holdings. Start all at 0.
@@ -167,9 +166,8 @@ export default function WalletPage() {
     DOT: 0,
   });
 
-  const { lang, setLang } = useLang();
-  const currentLang =
-    LANG_OPTIONS.find((l) => l.code === lang) ?? LANG_OPTIONS[0];
+  // ✅ keep language for translating labels, but DO NOT show selector here
+  const { lang } = useLang();
 
   // Live prices (in USDT)
   const [prices, setPrices] = useState<PriceMap>({
@@ -227,13 +225,14 @@ export default function WalletPage() {
 
         const next = Number(j?.balance ?? 0);
         if (!cancelled) {
-          setBalance(Number.isFinite(next) ? next : 0);
+          const safe = Number.isFinite(next) ? next : 0;
+          setBalance(safe);
 
           // Also update the header component if it listens for this event
           if (typeof window !== 'undefined') {
             window.dispatchEvent(
               new CustomEvent('coinvade-wallet-updated', {
-                detail: { balance: Number.isFinite(next) ? next : 0 },
+                detail: { balance: safe },
               })
             );
           }
@@ -310,7 +309,6 @@ export default function WalletPage() {
     if (!Number.isFinite(value)) return;
 
     if (coin === 'USDT') {
-      // ✅ keep local UI in sync; real source still comes from backend
       const next = Math.max(0, value);
       setBalance(next);
 
@@ -462,7 +460,6 @@ export default function WalletPage() {
         alt={coin}
         className="mr-2 h-5 w-5 rounded-full border border-white/10 bg-black/40 object-contain"
         onError={(e) => {
-          // fallback icon if missing
           (e.currentTarget as HTMLImageElement).src = '/icons/coin.svg';
         }}
       />
@@ -478,44 +475,12 @@ export default function WalletPage() {
         <div className="text-lg tracking-wide text-[var(--neon)]">COINVADE</div>
 
         <div className="flex items-center gap-3">
-          {/* desktop language selector */}
-          <div className="hidden items-center gap-2 rounded-2xl border border-white/15 bg-black/40 px-3 py-2 text-xs text-white/70 sm:flex">
-            <span className="text-lg">{currentLang.flag}</span>
-            <select
-              value={lang}
-              onChange={(e) => setLang(e.target.value as LangCode)}
-              className="bg-transparent text-xs outline-none"
-            >
-              {LANG_OPTIONS.map((opt) => (
-                <option key={opt.code} value={opt.code}>
-                  {opt.flag} {opt.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
           {/* USDT balance summary */}
           <div className="rounded-2xl border border-white/15 bg-black/30 px-4 py-2 text-sm">
             <div className="text-white/60">{tr('balance', lang)}</div>
             <div className="font-semibold">{fmt(balance)} USDT</div>
           </div>
         </div>
-      </div>
-
-      {/* mobile language pill */}
-      <div className="fixed bottom-4 left-4 z-40 flex items-center gap-2 rounded-full border border-white/20 bg-black/70 px-3 py-2 text-xs text-white/80 shadow-lg sm:hidden">
-        <span>{currentLang.flag}</span>
-        <select
-          value={lang}
-          onChange={(e) => setLang(e.target.value as LangCode)}
-          className="bg-transparent text-xs outline-none"
-        >
-          {LANG_OPTIONS.map((opt) => (
-            <option key={opt.code} value={opt.code}>
-              {opt.flag} {opt.name}
-            </option>
-          ))}
-        </select>
       </div>
 
       {/* nav */}
@@ -647,7 +612,8 @@ export default function WalletPage() {
                 <div className="mt-1 text-[11px] text-white/50">
                   Available:{' '}
                   <span className="text-white/80">
-                    {fmt(getCoinBalance(fromCoin), fromCoin === 'USDT' ? 2 : 6)} {fromCoin}
+                    {fmt(getCoinBalance(fromCoin), fromCoin === 'USDT' ? 2 : 6)}{' '}
+                    {fromCoin}
                   </span>
                 </div>
               </div>
@@ -673,7 +639,8 @@ export default function WalletPage() {
                 <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3 text-xs text-cyan-100">
                   1 {fromCoin} ≈{' '}
                   <span className="font-semibold">
-                    {((prices[fromCoin] || 0) / (prices[toCoin] || 1)).toFixed(6)} {toCoin}
+                    {((prices[fromCoin] || 0) / (prices[toCoin] || 1)).toFixed(6)}{' '}
+                    {toCoin}
                   </span>
                 </div>
               )}
@@ -812,7 +779,9 @@ export default function WalletPage() {
                 return (
                   <div className="mt-1 text-[11px] text-white/50">
                     Available:{' '}
-                    <span className="text-white/80">{fmt(bal, ch.coin === 'USDT' ? 2 : 6)} {ch.coin}</span>
+                    <span className="text-white/80">
+                      {fmt(bal, ch.coin === 'USDT' ? 2 : 6)} {ch.coin}
+                    </span>
                     {' • '}Network: <span className="text-white/80">{ch.networkLabel}</span>
                   </div>
                 );

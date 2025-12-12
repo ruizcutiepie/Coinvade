@@ -5,12 +5,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 
 import BigMarketsMap from './components/BigMarketsMap';
-import {
-  useLang,
-  LANG_OPTIONS,
-  tr,
-  type LangCode,
-} from './components/useLang';
+import { useLang, LANG_OPTIONS, tr, type LangCode } from './components/useLang';
 
 // DB-backed wallet balance component
 import WalletBalance from './components/WalletBalance';
@@ -169,7 +164,6 @@ function HeroKlinePanel({ lang }: { lang: LangCode }) {
 
   const hoverC = hoverIndex != null ? candles[hoverIndex] : null;
 
-  // TRANSLATION FALLBACKS
   const tHeroTime = tr('hero.time', lang);
   const tHeroLastPrice = tr('hero.lastPrice', lang);
   const labelHeroTime = tHeroTime === 'hero.time' ? 'Time' : tHeroTime;
@@ -179,13 +173,10 @@ function HeroKlinePanel({ lang }: { lang: LangCode }) {
   return (
     <section className="mx-auto mb-12 max-w-6xl">
       <div className="rounded-3xl border border-cyan-500/25 bg-gradient-to-b from-slate-900/90 via-slate-950/95 to-black/95 p-5 shadow-[0_0_40px_rgba(0,255,255,0.18)]">
-
         {/* HEADER */}
         <div className="mb-4 flex justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4 flex-wrap">
-            <div className="text-sm text-white/60">
-              {labelHeroTime} / Pair
-            </div>
+            <div className="text-sm text-white/60">{labelHeroTime} / Pair</div>
 
             {HERO_SYMBOLS.map((s) => (
               <button
@@ -244,8 +235,6 @@ function HeroKlinePanel({ lang }: { lang: LangCode }) {
 
         {/* CHART */}
         <div className="relative mt-2 rounded-2xl border border-white/5 bg-black/70 px-3 py-3">
-
-          {/* HOVER DETAILS */}
           {hoverC && (
             <div className="absolute left-3 top-2 text-xs text-white/70">
               O: <span className="text-cyan-200">{fmt(hoverC.open)}</span>{' '}
@@ -264,14 +253,12 @@ function HeroKlinePanel({ lang }: { lang: LangCode }) {
             </div>
           )}
 
-          {/* SVG GRAPH */}
           <svg
             width="100%"
             viewBox={`0 0 ${width} ${height}`}
             onMouseMove={handleMove}
             onMouseLeave={() => setHoverIndex(null)}
           >
-            {/* ⭐ NEON GRID ⭐ */}
             <defs>
               <pattern
                 id="hero-grid"
@@ -295,7 +282,6 @@ function HeroKlinePanel({ lang }: { lang: LangCode }) {
               fill="url(#hero-grid)"
             />
 
-            {/* CANDLES */}
             {candles.map((c, idx) => {
               const x =
                 paddingX +
@@ -326,16 +312,16 @@ function HeroKlinePanel({ lang }: { lang: LangCode }) {
               );
             })}
 
-            {/* VOLUME */}
             {candles.map((c, idx) => {
               const x =
                 paddingX +
                 (idx / Math.max(1, candles.length - 1)) *
                   (width - paddingX * 2);
 
-              const color = c.close >= c.open
-                ? 'rgba(34,197,94,0.55)'
-                : 'rgba(248,113,113,0.55)';
+              const color =
+                c.close >= c.open
+                  ? 'rgba(34,197,94,0.55)'
+                  : 'rgba(248,113,113,0.55)';
 
               const barW = candleWidth * 0.5;
               const yTop = yVolume(c.volume);
@@ -382,14 +368,12 @@ export default function Home() {
 
   return (
     <main className="min-h-screen px-6 pb-16 pt-6 text-white">
-
       {/* TOP BAR */}
       <div className="mb-8 flex justify-between items-center">
         <div className="text-lg tracking-wide text-[var(--neon)]">COINVADE</div>
 
         <div className="flex items-center gap-3">
-
-          {/* DESKTOP LANGUAGE SELECTOR */}
+          {/* DESKTOP LANGUAGE SELECTOR (HOMEPAGE ONLY) */}
           <div className="hidden sm:flex items-center gap-2 rounded-2xl border border-white/15 bg-black/40 px-3 py-2 text-xs text-white/70">
             <span className="text-lg">{currentLang.flag}</span>
             <select
@@ -408,22 +392,6 @@ export default function Home() {
           {/* DB WALLET BALANCE */}
           <WalletBalance />
         </div>
-      </div>
-
-      {/* MOBILE LANGUAGE SELECTOR */}
-      <div className="fixed bottom-4 left-4 z-40 flex sm:hidden items-center gap-2 rounded-full border border-white/20 bg-black/70 px-3 py-2 text-xs text-white/80 shadow-lg">
-        <span>{currentLang.flag}</span>
-        <select
-          value={lang}
-          onChange={(e) => setLang(e.target.value as LangCode)}
-          className="bg-transparent outline-none text-xs"
-        >
-          {LANG_OPTIONS.map((opt) => (
-            <option key={opt.code} value={opt.code}>
-              {opt.flag} {opt.name}
-            </option>
-          ))}
-        </select>
       </div>
 
       {/* NAVIGATION */}
