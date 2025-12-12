@@ -1,8 +1,10 @@
 // src/app/admin/trades/page.tsx
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../lib/auth';
+import authOptions from '@/lib/auth';
 import prisma from '@/lib/prisma';
+
+export const dynamic = 'force-dynamic';
 
 function fmt(n: number, d = 2) {
   return n.toLocaleString(undefined, {
@@ -12,28 +14,21 @@ function fmt(n: number, d = 2) {
 }
 
 export default async function AdminTradesPage() {
-  const session = await getServerSession(authOptions);
-  const user = session?.user as any;
+  const session = (await getServerSession(authOptions as any)) as any;
 
-  // Only allow admins
-  if (!user || user.role !== 'ADMIN') {
-    redirect('/login');
-  }
+  const user = session?.user; // ✅ TS-safe now because session is any
+  if (!user) redirect('/login');
+  if (user.role !== 'ADMIN') redirect('/trade');
 
   const trades = await prisma.trade.findMany({
-    include: {
-      user: true,
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
-    take: 200, // adjust if you want more/less
+    include: { user: true },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
   });
 
   return (
     <main className="min-h-screen bg-black px-6 py-8 text-white">
       <div className="mx-auto max-w-6xl">
-        {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-[var(--neon)]">
@@ -54,7 +49,6 @@ export default async function AdminTradesPage() {
           </div>
         </div>
 
-        {/* Table */}
         <div className="overflow-x-auto rounded-2xl border border-white/10 bg-black/60">
           <table className="min-w-full text-xs">
             <thead className="bg-white/5 text-[11px] uppercase tracking-[0.16em] text-white/60">
@@ -70,6 +64,7 @@ export default async function AdminTradesPage() {
                 <th className="px-3 py-2 text-right">PnL</th>
               </tr>
             </thead>
+
             <tbody>
               {trades.map((t) => {
                 const pnl = (t.payout ?? 0) - (t.amount ?? 0);
@@ -92,12 +87,12 @@ export default async function AdminTradesPage() {
                     <td className="px-3 py-2 text-[11px]">
                       <span
                         className={
-                          t.direction.toUpperCase() === 'LONG'
+                          (t.direction ?? '').toUpperCase() === 'LONG'
                             ? 'text-emerald-400'
                             : 'text-red-400'
                         }
                       >
-                        {t.direction.toUpperCase()}
+                        {(t.direction ?? '').toUpperCase()}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-right text-[11px]">
