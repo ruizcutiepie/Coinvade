@@ -12,6 +12,20 @@
   --neon-soft: rgba(0, 224, 255, 0.45);
 }
 
+/* ✅ Select / Dropdown readability fix (language + all selects) */
+select {
+  color: var(--text); /* makes selected value readable */
+  -webkit-text-fill-color: var(--text); /* iOS/Safari */
+}
+select option {
+  background: var(--surface); /* readable dropdown list */
+  color: var(--text);
+}
+select optgroup {
+  background: var(--surface);
+  color: var(--text);
+}
+
 html, body, #__next {
   height: 100%;
 }
