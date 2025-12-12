@@ -71,7 +71,6 @@ const DEPOSIT_OPTIONS: DepositOption[] = [
     coin: 'BTC',
     networkLabel: 'Bitcoin mainnet',
     address: 'bc1qyfd3hv3hdvrdqgj6k6n98fz704uxfc4zsh0x3w',
-    // your real BTC QR under public/deposit/
     qr: '/deposit/btcbitcoin.jpeg',
     description: 'Send only BTC (Bitcoin network) to this address.',
   },
@@ -81,7 +80,6 @@ const DEPOSIT_OPTIONS: DepositOption[] = [
     coin: 'ETH',
     networkLabel: 'Ethereum (ERC20)',
     address: '0x938e129977943edbb568DfDdCdF5332D74D01B3a',
-    // your real ETH QR
     qr: '/deposit/etherc20.jpeg',
     description: 'Send only ETH via Ethereum ERC20 network.',
   },
@@ -91,7 +89,6 @@ const DEPOSIT_OPTIONS: DepositOption[] = [
     coin: 'USDT',
     networkLabel: 'TRON (TRC20)',
     address: 'TB9Jxca4JG1JqWp4bUJo9LumXFTFC3cLtX',
-    // your real USDT TRC20 QR (note the extra "t")
     qr: '/deposit/usdttrc20.jpeg',
     description: 'Send only USDT on TRC20 (TRON) to this address.',
   },
@@ -127,7 +124,6 @@ const WITHDRAW_CHANNELS: WithdrawChannel[] = [
   },
 ];
 
-// optional “cooperative recharge channels” like the screenshot
 const PARTNER_CHANNELS = [
   { name: 'BANXA', url: '#', caption: 'Official cooperative recharge channel' },
   {
@@ -155,19 +151,20 @@ const PARTNER_CHANNELS = [
 /* -------------------- MAIN PAGE -------------------- */
 
 export default function WalletPage() {
-  // Shared USDT balance (same key as markets/trade)
-  const [balance, setBalance] = useLocalNumber('coinvade.balance', 1000);
+  // ✅ IMPORTANT: no demo default. Start from 0.
+  // This key is shared across pages, so we keep it, but the default is now 0.
+  const [balance, setBalance] = useLocalNumber('coinvade.balance', 0);
 
-  // Non-USDT holdings
+  // ✅ IMPORTANT: no seeded demo holdings. Start all at 0.
   const [wallet, setWallet] = useLocalJson<WalletState>('coinvade.wallet', {
-    BTC: 0.05,
-    ETH: 0.3,
-    SOL: 15,
-    XRP: 300,
-    ADA: 500,
-    BNB: 2,
-    DOGE: 2000,
-    DOT: 40,
+    BTC: 0,
+    ETH: 0,
+    SOL: 0,
+    XRP: 0,
+    ADA: 0,
+    BNB: 0,
+    DOGE: 0,
+    DOT: 0,
   });
 
   const { lang, setLang } = useLang();
@@ -212,6 +209,46 @@ export default function WalletPage() {
   const [withdrawNote, setWithdrawNote] = useState('');
   const [withdrawLoading, setWithdrawLoading] = useState(false);
 
+  /* -------------------- LOAD REAL USDT BALANCE (PRISMA) -------------------- */
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadUSDTBalance() {
+      try {
+        const res = await fetch('/api/wallet', { cache: 'no-store' });
+
+        // Not logged in: keep everything at 0
+        if (res.status === 401) {
+          if (!cancelled) setBalance(0);
+          return;
+        }
+
+        const j = await res.json();
+
+        const next = Number(j?.balance ?? 0);
+        if (!cancelled) {
+          setBalance(Number.isFinite(next) ? next : 0);
+
+          // Also update the header component if it listens for this event
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('coinvade-wallet-updated', {
+                detail: { balance: Number.isFinite(next) ? next : 0 },
+              })
+            );
+          }
+        }
+      } catch (e) {
+        console.error('[wallet/page] failed to load /api/wallet', e);
+      }
+    }
+
+    loadUSDTBalance();
+    return () => {
+      cancelled = true;
+    };
+  }, [setBalance]);
+
   /* -------- Load prices via /api/price -------- */
 
   async function loadPrices() {
@@ -228,7 +265,7 @@ export default function WalletPage() {
         'BNB',
         'DOGE',
         'DOT',
-      ]; // USDT = 1
+      ];
 
       const results = await Promise.all(
         coinsToFetch.map(async (c) => {
@@ -258,7 +295,7 @@ export default function WalletPage() {
 
   useEffect(() => {
     loadPrices();
-    const id = setInterval(loadPrices, 20000); // refresh every 20s
+    const id = setInterval(loadPrices, 20000);
     return () => clearInterval(id);
   }, []);
 
@@ -271,10 +308,20 @@ export default function WalletPage() {
 
   function setCoinBalance(coin: Coin, value: number) {
     if (!Number.isFinite(value)) return;
+
     if (coin === 'USDT') {
-      setBalance(Math.max(0, value));
+      // ✅ keep local UI in sync; real source still comes from backend
+      const next = Math.max(0, value);
+      setBalance(next);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('coinvade-wallet-updated', { detail: { balance: next } })
+        );
+      }
       return;
     }
+
     setWallet((prev) => ({
       ...prev,
       [coin]: Math.max(0, value),
@@ -325,7 +372,6 @@ export default function WalletPage() {
       return;
     }
 
-    // Convert amount → USDT value → target coin
     const valueUSDT = amt * fromPrice;
     const received = valueUSDT / toPrice;
 
@@ -392,7 +438,6 @@ export default function WalletPage() {
         return;
       }
 
-      // Optionally hold funds right away on front-end.
       setCoinBalance(channel.coin as Coin, bal - amount);
 
       setWithdrawAddress('');
@@ -410,13 +455,16 @@ export default function WalletPage() {
   /* -------- Icon helper -------- */
 
   function CoinIcon({ coin }: { coin: Coin }) {
-    // expects files like /public/icons/btc.svg, /public/icons/usdt.svg, etc.
     const file = `/icons/${coin.toLowerCase()}.svg`;
     return (
       <img
         src={file}
         alt={coin}
         className="mr-2 h-5 w-5 rounded-full border border-white/10 bg-black/40 object-contain"
+        onError={(e) => {
+          // fallback icon if missing
+          (e.currentTarget as HTMLImageElement).src = '/icons/coin.svg';
+        }}
       />
     );
   }
@@ -513,9 +561,7 @@ export default function WalletPage() {
             </div>
 
             {priceLoading && (
-              <div className="mb-3 text-xs text-white/50">
-                Loading prices…
-              </div>
+              <div className="mb-3 text-xs text-white/50">Loading prices…</div>
             )}
             {priceError && (
               <div className="mb-3 text-xs text-rose-300">{priceError}</div>
@@ -535,8 +581,7 @@ export default function WalletPage() {
                   {SUPPORTED_COINS.map((coin) => {
                     const bal = getCoinBalance(coin);
                     const price = prices[coin] || 0;
-                    const value =
-                      coin === 'USDT' ? bal : bal * (prices[coin] || 0);
+                    const value = coin === 'USDT' ? bal : bal * price;
 
                     return (
                       <tr
@@ -553,14 +598,10 @@ export default function WalletPage() {
                           {fmt(bal, coin === 'USDT' ? 2 : 6)}
                         </td>
                         <td className="px-4 py-2 text-right">
-                          {coin === 'USDT'
-                            ? '1.00'
-                            : price
-                            ? fmt(price, 4)
-                            : '--'}
+                          {coin === 'USDT' ? '1.00' : price ? fmt(price, 4) : '--'}
                         </td>
                         <td className="px-4 py-2 text-right">
-                          {value ? fmt(value, 2) : '--'}
+                          {bal === 0 ? '0.00' : fmt(value, 2)}
                         </td>
                       </tr>
                     );
@@ -574,8 +615,7 @@ export default function WalletPage() {
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-black/40 p-5 shadow-[0_0_40px_rgba(0,0,0,.6)]">
             <h2 className="mb-4 text-lg font-semibold">Convert</h2>
             <p className="mb-4 text-xs text-white/60">
-              Convert between supported assets using live market prices. This
-              updates your demo balances immediately.
+              Convert between supported assets using live market prices.
             </p>
 
             <form onSubmit={handleConvert} className="space-y-4 text-sm">
@@ -607,11 +647,7 @@ export default function WalletPage() {
                 <div className="mt-1 text-[11px] text-white/50">
                   Available:{' '}
                   <span className="text-white/80">
-                    {fmt(
-                      getCoinBalance(fromCoin),
-                      fromCoin === 'USDT' ? 2 : 6
-                    )}{' '}
-                    {fromCoin}
+                    {fmt(getCoinBalance(fromCoin), fromCoin === 'USDT' ? 2 : 6)} {fromCoin}
                   </span>
                 </div>
               </div>
@@ -637,11 +673,7 @@ export default function WalletPage() {
                 <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3 text-xs text-cyan-100">
                   1 {fromCoin} ≈{' '}
                   <span className="font-semibold">
-                    {(
-                      (prices[fromCoin] || 0) /
-                      (prices[toCoin] || 1)
-                    ).toFixed(6)}{' '}
-                    {toCoin}
+                    {((prices[fromCoin] || 0) / (prices[toCoin] || 1)).toFixed(6)} {toCoin}
                   </span>
                 </div>
               )}
@@ -663,12 +695,10 @@ export default function WalletPage() {
           <div className="rounded-2xl border border-white/10 bg-black/40 p-5 shadow-[0_0_40px_rgba(0,0,0,.6)]">
             <h2 className="mb-2 text-lg font-semibold">Deposit coins</h2>
             <p className="mb-4 text-xs text-white/60">
-              Please select the recharge channel below. The wallet address may
-              be updated from time to time. Always double-check the network
-              before transferring funds.
+              Please select the recharge channel below. The wallet address may be updated from time to time.
+              Always double-check the network before transferring funds.
             </p>
 
-            {/* List of channels, like screenshot */}
             <div className="mb-4 overflow-hidden rounded-xl border border-white/10 bg-black/60">
               {DEPOSIT_OPTIONS.map((opt, idx) => (
                 <button
@@ -676,9 +706,7 @@ export default function WalletPage() {
                   type="button"
                   onClick={() => setSelectedDepositId(opt.id)}
                   className={`flex w-full items-center justify-between px-4 py-3 text-xs ${
-                    idx !== DEPOSIT_OPTIONS.length - 1
-                      ? 'border-b border-white/10'
-                      : ''
+                    idx !== DEPOSIT_OPTIONS.length - 1 ? 'border-b border-white/10' : ''
                   } ${
                     selectedDepositId === opt.id
                       ? 'bg-cyan-500/10 text-cyan-100'
@@ -686,7 +714,6 @@ export default function WalletPage() {
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    {/* simple bullet icon */}
                     <span className="h-2 w-2 rounded-full bg-cyan-400" />
                     <span>{opt.label}</span>
                   </span>
@@ -695,32 +722,24 @@ export default function WalletPage() {
               ))}
             </div>
 
-            {/* Selected detail */}
             {(() => {
               const opt =
-                DEPOSIT_OPTIONS.find((d) => d.id === selectedDepositId) ??
-                DEPOSIT_OPTIONS[0];
+                DEPOSIT_OPTIONS.find((d) => d.id === selectedDepositId) ?? DEPOSIT_OPTIONS[0];
               return (
                 <div className="space-y-3 text-xs">
                   <div className="flex flex-col items-center">
-                    {/* QR image: using your real images in /public/deposit */}
                     <img
                       src={opt.qr}
                       alt={`${opt.label} deposit QR`}
                       className="mb-2 h-48 w-48 rounded-2xl border border-white/15 bg-white object-contain p-2"
                     />
                     <div className="text-[11px] text-white/60">
-                      Network:{' '}
-                      <span className="text-white/90">
-                        {opt.networkLabel}
-                      </span>
+                      Network: <span className="text-white/90">{opt.networkLabel}</span>
                     </div>
                   </div>
 
                   <div>
-                    <div className="mb-1 text-[11px] text-white/60">
-                      Deposit address
-                    </div>
+                    <div className="mb-1 text-[11px] text-white/60">Deposit address</div>
                     <div className="flex items-center gap-2">
                       <div className="flex-1 truncate rounded-xl border border-white/15 bg-black/60 px-3 py-2 text-[11px] font-mono text-white/80">
                         {opt.address}
@@ -730,12 +749,8 @@ export default function WalletPage() {
                         onClick={() =>
                           navigator.clipboard
                             .writeText(opt.address)
-                            .then(() =>
-                              alert('Address copied to clipboard')
-                            )
-                            .catch(() =>
-                              alert('Unable to copy address')
-                            )
+                            .then(() => alert('Address copied to clipboard'))
+                            .catch(() => alert('Unable to copy address'))
                         }
                         className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-[11px] text-white/80 hover:border-white/40"
                       >
@@ -745,15 +760,13 @@ export default function WalletPage() {
                   </div>
 
                   <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-[11px] text-amber-100">
-                    {opt.description} Sending any other asset or using a
-                    different network may result in permanent loss of funds.
+                    {opt.description} Sending any other asset or using a different network may result in permanent loss of funds.
                   </div>
                 </div>
               );
             })()}
           </div>
 
-          {/* cooperative channels list */}
           <div className="rounded-2xl border border-white/10 bg-black/40 p-5 text-xs shadow-[0_0_40px_rgba(0,0,0,.6)]">
             {PARTNER_CHANNELS.map((p) => (
               <a
@@ -775,16 +788,13 @@ export default function WalletPage() {
         <section className="mx-auto max-w-md rounded-2xl border border-white/10 bg-black/40 p-5 text-sm shadow-[0_0_40px_rgba(0,0,0,.6)]">
           <h2 className="mb-3 text-lg font-semibold">Withdraw</h2>
           <p className="mb-4 text-xs text-white/60">
-            Connect your own wallet by providing a valid payout address. Our
-            team will review and process your withdrawal to this address.
+            Connect your own wallet by providing a valid payout address. Our team will review and process your
+            withdrawal to this address.
           </p>
 
           <form onSubmit={handleWithdraw} className="space-y-4">
-            {/* channel */}
             <div>
-              <label className="mb-1 block text-xs text-white/60">
-                Asset &amp; network
-              </label>
+              <label className="mb-1 block text-xs text-white/60">Asset &amp; network</label>
               <select
                 value={withdrawChannelId}
                 onChange={(e) => setWithdrawChannelId(e.target.value)}
@@ -797,29 +807,20 @@ export default function WalletPage() {
                 ))}
               </select>
               {(() => {
-                const ch = WITHDRAW_CHANNELS.find(
-                  (c) => c.id === withdrawChannelId
-                )!;
+                const ch = WITHDRAW_CHANNELS.find((c) => c.id === withdrawChannelId)!;
                 const bal = getCoinBalance(ch.coin as Coin);
                 return (
                   <div className="mt-1 text-[11px] text-white/50">
                     Available:{' '}
-                    <span className="text-white/80">
-                      {fmt(bal, ch.coin === 'USDT' ? 2 : 6)} {ch.coin}
-                    </span>
-                    {' • '}
-                    Network:{' '}
-                    <span className="text-white/80">{ch.networkLabel}</span>
+                    <span className="text-white/80">{fmt(bal, ch.coin === 'USDT' ? 2 : 6)} {ch.coin}</span>
+                    {' • '}Network: <span className="text-white/80">{ch.networkLabel}</span>
                   </div>
                 );
               })()}
             </div>
 
-            {/* address */}
             <div>
-              <label className="mb-1 block text-xs text-white/60">
-                Your wallet address
-              </label>
+              <label className="mb-1 block text-xs text-white/60">Your wallet address</label>
               <input
                 type="text"
                 value={withdrawAddress}
@@ -829,11 +830,8 @@ export default function WalletPage() {
               />
             </div>
 
-            {/* amount */}
             <div>
-              <label className="mb-1 block text-xs text-white/60">
-                Amount
-              </label>
+              <label className="mb-1 block text-xs text-white/60">Amount</label>
               <input
                 type="number"
                 min={0}
@@ -845,11 +843,8 @@ export default function WalletPage() {
               />
             </div>
 
-            {/* note */}
             <div>
-              <label className="mb-1 block text-xs text-white/60">
-                Note (optional)
-              </label>
+              <label className="mb-1 block text-xs text-white/60">Note (optional)</label>
               <textarea
                 value={withdrawNote}
                 onChange={(e) => setWithdrawNote(e.target.value)}
@@ -859,8 +854,8 @@ export default function WalletPage() {
             </div>
 
             <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-[11px] text-amber-100">
-              Make sure the address and network are correct. Withdrawals are
-              processed manually by our team using the details you provide.
+              Make sure the address and network are correct. Withdrawals are processed manually by our team using the
+              details you provide.
             </div>
 
             <button
