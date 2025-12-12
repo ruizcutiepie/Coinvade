@@ -4,17 +4,22 @@ import { getServerSession } from "next-auth";
 import authOptions from "@/lib/auth";
 import AdminDashboard from "./AdminDashboard";
 
+// ✅ ensures this page is always server-checked (no static caching)
+export const dynamic = "force-dynamic";
+
 export default async function AdminPage() {
-  // Get the current logged-in session (server side)
   const session = await getServerSession(authOptions as any);
   const role = (session as any)?.user?.role;
 
-  // If no session or not an admin → kick them out
-  if (!session || role !== "ADMIN") {
-    // you can change this to '/login' if you prefer
-    redirect("/");
+  // ✅ Not logged in → go to login
+  if (!session) {
+    redirect("/login");
   }
 
-  // Otherwise show the admin dashboard
+  // ✅ Logged in but not admin → go to trade (or homepage)
+  if (role !== "ADMIN") {
+    redirect("/trade");
+  }
+
   return <AdminDashboard />;
 }
