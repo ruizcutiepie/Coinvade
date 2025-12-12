@@ -1,3 +1,4 @@
+// src/app/login/page.tsx
 'use client';
 
 import React, { useState } from 'react';
@@ -9,6 +10,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false); // ✅ NEW
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +32,6 @@ export default function LoginPage() {
       return;
     }
 
-    // ✅ Successful login – send user to /trade (or wherever you want)
     router.push('/trade');
   }
 
@@ -46,9 +47,7 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-xs text-white/60">
-              Email
-            </label>
+            <label className="mb-1 block text-xs text-white/60">Email</label>
             <input
               type="email"
               required
@@ -56,21 +55,38 @@ export default function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-xl border border-white/15 bg-black/70 px-3 py-2 text-sm outline-none focus:border-cyan-400/70"
               placeholder="you@example.com"
+              autoComplete="email"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-xs text-white/60">
-              Password
-            </label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-xl border border-white/15 bg-black/70 px-3 py-2 text-sm outline-none focus:border-cyan-400/70"
-              placeholder="••••••••"
-            />
+            <label className="mb-1 block text-xs text-white/60">Password</label>
+
+            {/* ✅ Password + View toggle */}
+            <div className="relative">
+              <input
+                type={showPw ? 'text' : 'password'}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-xl border border-white/15 bg-black/70 px-3 py-2 pr-16 text-sm outline-none focus:border-cyan-400/70"
+                placeholder="••••••••"
+                autoComplete="current-password"
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowPw((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-white/80 hover:border-white/30 hover:bg-white/10"
+                aria-label={showPw ? 'Hide password' : 'Show password'}
+              >
+                {showPw ? 'HIDE' : 'VIEW'}
+              </button>
+            </div>
+
+            <div className="mt-1 text-[11px] text-white/40">
+              Tip: Click <span className="text-white/70">VIEW</span> to reveal your password.
+            </div>
           </div>
 
           {error && (
@@ -88,7 +104,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* 👇 New: Register link */}
+        {/* ✅ Register link stays */}
         <p className="mt-4 text-center text-xs text-white/60">
           Don&apos;t have an account?{' '}
           <Link
