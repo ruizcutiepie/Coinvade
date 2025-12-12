@@ -10,58 +10,69 @@ function fmt(n: number, d = 2) {
   });
 }
 
+const STORAGE_KEY = 'coinvade.walletBalance';
+
 const WalletBalance: React.FC = () => {
-  const [balance, setBalance] = useState<number | null>(null);
+  // ✅ Default should NEVER be demo. Start at 0 (or null if you prefer "—").
+  const [balance, setBalance] = useState<number>(0);
   const [currency, setCurrency] = useState<string>('USDT');
 
   useEffect(() => {
     let cancelled = false;
 
-    const applyBalance = (value: number | null) => {
+    const applyBalance = (value: number) => {
       if (!cancelled) setBalance(value);
     };
 
-    // ✅ 1. Try localStorage first so all pages share a value
-    if (typeof window !== 'undefined') {
-      const stored = window.localStorage.getItem('coinvade.walletBalance');
-      if (stored != null && !Number.isNaN(Number(stored))) {
-        applyBalance(Number(stored));
-      }
-    }
-
-    // ✅ 2. Load from backend once (source of truth when app starts)
     const loadFromBackend = async () => {
       try {
-        const res = await fetch('/api/wallet/info', { cache: 'no-store' });
+        // ✅ Use the real Prisma-backed endpoint
+        const res = await fetch('/api/wallet', { cache: 'no-store' });
+
+        // If not logged in, just show 0 (no scary errors / no fake balance)
+        if (res.status === 401) {
+          applyBalance(0);
+          setCurrency('USDT');
+
+          // ✅ Clear any old demo localStorage value
+          if (typeof window !== 'undefined') {
+            window.localStorage.removeItem(STORAGE_KEY);
+          }
+          return;
+        }
+
         const j = await res.json();
         if (cancelled) return;
 
-        if (res.ok && j?.ok && j.wallet) {
-          const next = Number(j.wallet.balance ?? 0);
-          applyBalance(next);
-          setCurrency(j.wallet.currency ?? 'USDT');
+        // Expected response from /api/wallet: { balance: number, deposits: [...] }
+        const next = Number(j?.balance ?? 0);
+        applyBalance(Number.isFinite(next) ? next : 0);
+        setCurrency('USDT');
 
-          if (typeof window !== 'undefined') {
-            window.localStorage.setItem('coinvade.walletBalance', String(next));
-          }
+        // ✅ Keep localStorage only as a cache (never as the source of truth)
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(STORAGE_KEY, String(next));
         }
       } catch (err) {
         console.error('[WalletBalance] failed to load wallet', err);
+        // If backend fails, do NOT show demo balance — stay safe at 0
+        applyBalance(0);
+        setCurrency('USDT');
       }
     };
 
+    // ✅ On mount: always trust backend
     loadFromBackend();
 
-    // ✅ 3. Listen for cross-page updates from trades
+    // ✅ Listen for cross-page updates (e.g., after trade/deposit approval)
     const handler = (event: Event) => {
       const custom = event as CustomEvent<{ balance: number }>;
       if (typeof custom.detail?.balance === 'number') {
-        applyBalance(custom.detail.balance);
+        const next = custom.detail.balance;
+        applyBalance(next);
+
         if (typeof window !== 'undefined') {
-          window.localStorage.setItem(
-            'coinvade.walletBalance',
-            String(custom.detail.balance)
-          );
+          window.localStorage.setItem(STORAGE_KEY, String(next));
         }
       }
     };
@@ -84,7 +95,7 @@ const WalletBalance: React.FC = () => {
         Wallet
       </span>
       <span className="font-mono text-sm text-white">
-        {balance != null ? fmt(balance, 2) : '—'} {currency}
+        {fmt(balance, 2)} {currency}
       </span>
     </div>
   );
