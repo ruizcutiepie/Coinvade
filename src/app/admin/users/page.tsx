@@ -7,17 +7,47 @@ function fmtDate(d: Date | string | null | undefined) {
   return dt.toLocaleString();
 }
 
+function fmtNum(n: number, d = 2) {
+  return Number(n || 0).toLocaleString(undefined, {
+    minimumFractionDigits: d,
+    maximumFractionDigits: d,
+  });
+}
+
+// Force server render (admin list should always be fresh)
 export const dynamic = 'force-dynamic';
 
 export default async function AdminUsersPage() {
-  // ✅ Keep this simple and stable first: list users + roles + created date.
-  // (We can add balances + counts next once we confirm your Prisma relations.)
   const users = await prisma.user.findMany({
     select: {
       id: true,
       email: true,
       role: true,
-      createdAt: true, // if your model doesn't have this, tell me and I’ll adjust
+      createdAt: true,
+
+      // USDT balance (wallet row where coin = 'USDT')
+      wallets: {
+        where: { coin: 'USDT' },
+        select: { balance: true },
+        take: 1,
+      },
+
+      // counts via relation aggregations
+      _count: {
+        select: {
+          trades: true,
+          deposits: true,
+          withdrawals: true,
+        },
+      },
+
+      // status breakdowns (simple, fast, reliable)
+      deposits: {
+        select: { status: true },
+      },
+      withdrawals: {
+        select: { status: true },
+      },
     },
     orderBy: { createdAt: 'desc' },
     take: 300,
@@ -67,6 +97,18 @@ export default async function AdminUsersPage() {
                 <th className="px-3 py-2 text-left">Created</th>
                 <th className="px-3 py-2 text-left">Email</th>
                 <th className="px-3 py-2 text-left">Role</th>
+
+                <th className="px-3 py-2 text-right">USDT</th>
+                <th className="px-3 py-2 text-right">Trades</th>
+
+                <th className="px-3 py-2 text-right">Deposits</th>
+                <th className="px-3 py-2 text-right">Dep Pending</th>
+                <th className="px-3 py-2 text-right">Dep Confirmed</th>
+
+                <th className="px-3 py-2 text-right">Withdrawals</th>
+                <th className="px-3 py-2 text-right">Wd Pending</th>
+                <th className="px-3 py-2 text-right">Wd Approved/Paid</th>
+
                 <th className="px-3 py-2 text-left">User ID</th>
               </tr>
             </thead>
@@ -74,6 +116,26 @@ export default async function AdminUsersPage() {
             <tbody>
               {users.map((u) => {
                 const isAdmin = String(u.role).toUpperCase() === 'ADMIN';
+                const usdt = u.wallets?.[0]?.balance ?? 0;
+
+                const depPending = u.deposits.reduce(
+                  (acc, d) => acc + (d.status === 'PENDING' ? 1 : 0),
+                  0
+                );
+                const depConfirmed = u.deposits.reduce(
+                  (acc, d) => acc + (d.status === 'CONFIRMED' ? 1 : 0),
+                  0
+                );
+
+                const wdPending = u.withdrawals.reduce(
+                  (acc, w) => acc + (w.status === 'PENDING' ? 1 : 0),
+                  0
+                );
+                const wdApprovedPaid = u.withdrawals.reduce(
+                  (acc, w) =>
+                    acc + (w.status === 'APPROVED' || w.status === 'PAID' ? 1 : 0),
+                  0
+                );
 
                 return (
                   <tr
@@ -100,6 +162,34 @@ export default async function AdminUsersPage() {
                       </span>
                     </td>
 
+                    <td className="px-3 py-2 text-right text-[11px] font-mono text-white">
+                      {fmtNum(usdt, 2)}
+                    </td>
+
+                    <td className="px-3 py-2 text-right text-[11px] text-white/80">
+                      {u._count.trades}
+                    </td>
+
+                    <td className="px-3 py-2 text-right text-[11px] text-white/80">
+                      {u._count.deposits}
+                    </td>
+                    <td className="px-3 py-2 text-right text-[11px] text-amber-300">
+                      {depPending}
+                    </td>
+                    <td className="px-3 py-2 text-right text-[11px] text-emerald-300">
+                      {depConfirmed}
+                    </td>
+
+                    <td className="px-3 py-2 text-right text-[11px] text-white/80">
+                      {u._count.withdrawals}
+                    </td>
+                    <td className="px-3 py-2 text-right text-[11px] text-amber-300">
+                      {wdPending}
+                    </td>
+                    <td className="px-3 py-2 text-right text-[11px] text-emerald-300">
+                      {wdApprovedPaid}
+                    </td>
+
                     <td className="px-3 py-2 text-[11px] font-mono text-white/60">
                       {u.id}
                     </td>
@@ -110,7 +200,7 @@ export default async function AdminUsersPage() {
               {users.length === 0 && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={12}
                     className="px-3 py-8 text-center text-xs text-white/50"
                   >
                     No users found.
@@ -122,7 +212,7 @@ export default async function AdminUsersPage() {
         </div>
 
         <p className="mt-3 text-[11px] text-white/45">
-          Next: we’ll add columns for USDT balance, total trades, deposits, withdrawals.
+          Next step: add “Verify Account” page + make it appear in nav (client requested).
         </p>
       </div>
     </main>
