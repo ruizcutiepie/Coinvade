@@ -50,7 +50,7 @@ async function safeJson(res: Response) {
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error(`Non-JSON response from ${res.url} (status ${res.status})`);
+    throw new Error(`Non-JSON response from ${res.url} (${res.status})`);
   }
 }
 
@@ -67,10 +67,10 @@ export default function AdminDashboard() {
       const j = await safeJson(res);
 
       if (!res.ok || !j?.ok) {
-        throw new Error(j?.error || `Failed to load metrics (${res.status})`);
+        throw new Error(j?.error || 'Failed to load metrics');
       }
 
-      setMetrics(j.metrics as AdminMetrics);
+      setMetrics(j.metrics);
     } catch (e: any) {
       setMetrics(null);
       setError(e?.message || 'Failed to load metrics');
@@ -89,9 +89,10 @@ export default function AdminDashboard() {
   return (
     <main className="min-h-screen bg-black px-6 py-8 text-white">
       <div className="mx-auto max-w-6xl">
+        {/* HEADER */}
         <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-semibold text-[var(--neon)]">
+            <h1 className="text-3xl font-semibold text-cyan-300">
               Admin Dashboard
             </h1>
             <p className="mt-1 text-xs text-white/60">
@@ -99,6 +100,7 @@ export default function AdminDashboard() {
             </p>
           </div>
 
+          {/* NAV BUTTONS */}
           <div className="flex gap-2">
             <a
               href="/admin/users"
@@ -106,18 +108,28 @@ export default function AdminDashboard() {
             >
               Users
             </a>
+
+            <a
+              href="/admin/deposits"
+              className="rounded-xl border border-white/20 bg-white/5 px-3 py-1.5 text-xs text-white/80 hover:border-white/40"
+            >
+              Deposits
+            </a>
+
             <a
               href="/admin/withdrawals"
               className="rounded-xl border border-white/20 bg-white/5 px-3 py-1.5 text-xs text-white/80 hover:border-white/40"
             >
               Withdrawals
             </a>
+
             <a
               href="/admin/trades"
               className="rounded-xl border border-white/20 bg-white/5 px-3 py-1.5 text-xs text-white/80 hover:border-white/40"
             >
               Trades
             </a>
+
             <button
               onClick={load}
               className="rounded-xl bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-black shadow-[0_0_18px_rgba(34,211,238,.5)] hover:bg-cyan-400"
@@ -127,6 +139,7 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        {/* ERROR */}
         {error && (
           <div className="mb-5 rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
             {error}
@@ -173,6 +186,7 @@ export default function AdminDashboard() {
               {metrics ? metrics.pendingDeposits : '—'}
             </div>
           </div>
+
           <div className="rounded-2xl border border-white/10 bg-black/60 p-4">
             <div className="text-[11px] uppercase tracking-[0.16em] text-white/50">
               Pending Withdrawals
@@ -187,109 +201,75 @@ export default function AdminDashboard() {
           <div className="mb-6 text-sm text-white/60">Loading…</div>
         )}
 
-        {/* RECENTS */}
+        {/* RECENT USERS + TRADES */}
         <section className="grid gap-6 md:grid-cols-2">
-          {/* Recent Users */}
+          {/* USERS */}
           <div className="rounded-2xl border border-white/10 bg-black/60 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Recent Users</h2>
-              <span className="text-xs text-white/50">
-                showing {recentUsers.length}
-              </span>
-            </div>
+            <h2 className="mb-3 text-lg font-semibold">Recent Users</h2>
 
             {recentUsers.length === 0 ? (
               <div className="py-4 text-sm text-white/50">No users yet.</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-xs">
-                  <thead className="text-[11px] uppercase tracking-[0.16em] text-white/60">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Email</th>
-                      <th className="px-3 py-2 text-left">Role</th>
-                      <th className="px-3 py-2 text-left">Created</th>
+              <table className="min-w-full text-xs">
+                <thead className="uppercase text-white/50">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Email</th>
+                    <th className="px-3 py-2 text-left">Role</th>
+                    <th className="px-3 py-2 text-left">Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentUsers.map((u) => (
+                    <tr key={u.id} className="border-t border-white/5">
+                      <td className="px-3 py-2">{u.email ?? '—'}</td>
+                      <td className="px-3 py-2">{u.role}</td>
+                      <td className="px-3 py-2 text-white/60">
+                        {fmtDate(u.createdAt)}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {recentUsers.map((u) => (
-                      <tr key={u.id} className="border-t border-white/5 hover:bg-white/5">
-                        <td className="px-3 py-2 text-white/85">
-                          {u.email ?? '—'}
-                        </td>
-                        <td className="px-3 py-2 text-white/70">{u.role}</td>
-                        <td className="px-3 py-2 text-white/60">
-                          {fmtDate(u.createdAt)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
 
-          {/* Recent Trades */}
+          {/* TRADES */}
           <div className="rounded-2xl border border-white/10 bg-black/60 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Recent Trades</h2>
-              <span className="text-xs text-white/50">
-                showing {recentTrades.length}
-              </span>
-            </div>
+            <h2 className="mb-3 text-lg font-semibold">Recent Trades</h2>
 
             {recentTrades.length === 0 ? (
               <div className="py-4 text-sm text-white/50">No trades yet.</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-xs">
-                  <thead className="text-[11px] uppercase tracking-[0.16em] text-white/60">
-                    <tr>
-                      <th className="px-3 py-2 text-left">User</th>
-                      <th className="px-3 py-2 text-left">Pair</th>
-                      <th className="px-3 py-2 text-left">Dir</th>
-                      <th className="px-3 py-2 text-right">Stake</th>
-                      <th className="px-3 py-2 text-right">Payout</th>
-                      <th className="px-3 py-2 text-left">Result</th>
+              <table className="min-w-full text-xs">
+                <thead className="uppercase text-white/50">
+                  <tr>
+                    <th className="px-3 py-2 text-left">User</th>
+                    <th className="px-3 py-2 text-left">Pair</th>
+                    <th className="px-3 py-2 text-left">Dir</th>
+                    <th className="px-3 py-2 text-right">Stake</th>
+                    <th className="px-3 py-2 text-right">Payout</th>
+                    <th className="px-3 py-2 text-left">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentTrades.map((t) => (
+                    <tr key={t.id} className="border-t border-white/5">
+                      <td className="px-3 py-2">{t.user?.email ?? '—'}</td>
+                      <td className="px-3 py-2">{t.pair}</td>
+                      <td className="px-3 py-2">{t.direction}</td>
+                      <td className="px-3 py-2 text-right">{fmt(t.amount)}</td>
+                      <td className="px-3 py-2 text-right">{fmt(t.payout)}</td>
+                      <td className="px-3 py-2">
+                        {t.won == null
+                          ? 'Pending'
+                          : t.won
+                          ? 'Win'
+                          : 'Loss'}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {recentTrades.map((t) => (
-                      <tr key={t.id} className="border-t border-white/5 hover:bg-white/5">
-                        <td className="px-3 py-2 text-white/80">
-                          {t.user?.email ?? '—'}
-                        </td>
-                        <td className="px-3 py-2 text-white/80">{t.pair}</td>
-                        <td className="px-3 py-2">
-                          <span
-                            className={
-                              String(t.direction).toUpperCase() === 'LONG'
-                                ? 'text-emerald-300'
-                                : 'text-rose-300'
-                            }
-                          >
-                            {String(t.direction).toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-right text-white/85">
-                          {fmt(t.amount)}
-                        </td>
-                        <td className="px-3 py-2 text-right text-white/85">
-                          {fmt(t.payout)}
-                        </td>
-                        <td className="px-3 py-2">
-                          {t.won == null ? (
-                            <span className="text-white/60">Pending</span>
-                          ) : t.won ? (
-                            <span className="text-emerald-300">Win</span>
-                          ) : (
-                            <span className="text-rose-300">Loss</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         </section>
