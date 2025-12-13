@@ -1,93 +1,74 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import prisma from '@/lib/prisma';
 import authOptions from '@/lib/auth';
+import prisma from '@/lib/prisma';
 
-function isAdmin(session: any) {
-  return !!session?.user && (session.user as any).role === 'ADMIN';
+function pickDepositModel(prismaAny: any) {
+  // try common model names (adjust if yours is different)
+  const candidates = [
+    'deposit',
+    'deposits',
+    'Deposit',
+    'DepositRequest',
+    'depositRequest',
+    'deposit_request',
+    'depositRequests',
+  ];
+
+  for (const key of candidates) {
+    if (prismaAny?.[key]?.findMany) return prismaAny[key];
+  }
+
+  // If none matched, show keys to help debugging (safe)
+  const keys = Object.keys(prismaAny || {}).filter((k) => prismaAny?.[k]?.findMany);
+  throw new Error(
+    `No deposit model found on Prisma client. Available models (findMany): ${keys.join(', ')}`
+  );
 }
 
-export async function GET(req: Request) {
-  const session = await getServerSession(authOptions as any);
-  if (!isAdmin(session)) {
-    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-  }
+export async function GET(req: NextRequest) {
+  try {
+    const session: any = await getServerSession(authOptions as any);
+    const user = session?.user as any;
 
-  const { searchParams } = new URL(req.url);
-  const status = searchParams.get('status'); // optional
-
-  const deposits = await prisma.depositIntent.findMany({
-    where: status ? { status } : undefined,
-    include: { user: { select: { id: true, email: true } } },
-    orderBy: { createdAt: 'desc' },
-    take: 200,
-  });
-
-  return NextResponse.json({ ok: true, deposits });
-}
-
-export async function PUT(req: Request) {
-  const session = await getServerSession(authOptions as any);
-  if (!isAdmin(session)) {
-    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const body = await req.json().catch(() => ({}));
-  const id = body?.id as string | undefined;
-  const action = body?.action as 'approve' | 'reject' | undefined;
-
-  if (!id || !action) {
-    return NextResponse.json({ ok: false, error: 'Missing id/action' }, { status: 400 });
-  }
-
-  const dep = await prisma.depositIntent.findUnique({
-    where: { id },
-    include: { user: { select: { id: true, email: true } } },
-  });
-
-  if (!dep) {
-    return NextResponse.json({ ok: false, error: 'Deposit not found' }, { status: 404 });
-  }
-
-  // approve = confirm + credit wallet
-  if (action === 'approve') {
-    if (dep.status === 'CONFIRMED') {
-      return NextResponse.json({ ok: true, deposit: dep });
+    if (!user || user.role !== 'ADMIN') {
+      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (dep.amount == null || Number(dep.amount) <= 0) {
-      return NextResponse.json(
-        { ok: false, error: 'Cannot approve deposit without a valid amount' },
-        { status: 400 }
-      );
+    const prismaAny: any = prisma;
+    const DepositModel = pickDepositModel(prismaAny);
+
+    const { searchParams } = new URL(req.url);
+    const status = searchParams.get('status') || undefined;
+    const limit = Math.min(Number(searchParams.get('limit') || 50), 200);
+
+    const where = status ? { status } : undefined;
+
+    // Try with include user.email (if relation exists)
+    try {
+      const deposits = await DepositModel.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        include: { user: { select: { email: true } } },
+      });
+
+      return NextResponse.json({ ok: true, deposits });
+    } catch {
+      // Fallback if "user" relation doesn’t exist in your model
+      const deposits = await DepositModel.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      });
+
+      return NextResponse.json({ ok: true, deposits });
     }
-
-    const [updated] = await prisma.$transaction([
-      prisma.depositIntent.update({
-        where: { id },
-        data: { status: 'CONFIRMED' },
-        include: { user: { select: { id: true, email: true } } },
-      }),
-      prisma.wallet.upsert({
-        where: { userId_coin: { userId: dep.userId, coin: dep.coin } },
-        create: { userId: dep.userId, coin: dep.coin, balance: dep.amount },
-        update: { balance: { increment: dep.amount } },
-      }),
-    ]);
-
-    return NextResponse.json({ ok: true, deposit: updated });
+  } catch (e: any) {
+    console.error('[api/admin/deposits] GET error', e);
+    return NextResponse.json(
+      { ok: false, error: e?.message || 'Server error' },
+      { status: 500 }
+    );
   }
-
-  // reject = failed (no wallet changes)
-  if (action === 'reject') {
-    const updated = await prisma.depositIntent.update({
-      where: { id },
-      data: { status: 'FAILED' },
-      include: { user: { select: { id: true, email: true } } },
-    });
-
-    return NextResponse.json({ ok: true, deposit: updated });
-  }
-
-  return NextResponse.json({ ok: false, error: 'Invalid action' }, { status: 400 });
 }
