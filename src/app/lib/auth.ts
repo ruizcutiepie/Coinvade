@@ -1,43 +1,32 @@
 // src/lib/auth.ts
-import type { NextAuthOptions } from 'next-auth';
-import CredentialsProvider from 'next-auth/providers/credentials';
-import { compare } from 'bcryptjs';
-import prisma from '@/lib/prisma';
+import type { NextAuthOptions } from "next-auth";
+import CredentialsProvider from "next-auth/providers/credentials";
+import { compare } from "bcryptjs";
+import prisma from "@/lib/prisma";
 
 export const authOptions: NextAuthOptions = {
-  session: {
-    strategy: 'jwt',
-  },
+  session: { strategy: "jwt" },
   providers: [
     CredentialsProvider({
-      name: 'Credentials',
+      name: "Credentials",
       credentials: {
-        email: { label: 'Email', type: 'email' },
-        password: { label: 'Password', type: 'password' },
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials.password) return null;
 
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
-          select: {
-            id: true,
-            email: true,
-            passwordHash: true,
-            role: true,
-          },
+          select: { id: true, email: true, passwordHash: true, role: true },
         });
 
-        if (!user || !user.passwordHash) return null;
+        if (!user?.passwordHash) return null;
 
         const ok = await compare(credentials.password, user.passwordHash);
         if (!ok) return null;
 
-        return {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-        } as any;
+        return { id: user.id, email: user.email, role: user.role } as any;
       },
     }),
   ],
@@ -57,9 +46,7 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
-  pages: {
-    signIn: '/login',
-  },
+  pages: { signIn: "/login" },
 };
 
 export default authOptions;

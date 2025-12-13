@@ -1,14 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import prisma from '@/lib/prisma';
-
-// IMPORTANT:
-// Use the SAME export style you already use in your project.
-// If your auth file exports default: `export default authOptions` -> keep this import
 import authOptions from '@/lib/auth';
 
 function isAdmin(session: any) {
-  return !!session?.user && session.user.role === 'ADMIN';
+  return !!session?.user && (session.user as any).role === 'ADMIN';
 }
 
 export async function GET(req: Request) {
@@ -44,7 +40,6 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, error: 'Missing id/action' }, { status: 400 });
   }
 
-  // Load deposit first
   const dep = await prisma.depositIntent.findUnique({
     where: { id },
     include: { user: { select: { id: true, email: true } } },
@@ -54,11 +49,12 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, error: 'Deposit not found' }, { status: 404 });
   }
 
-  // Approve = CONFIRMED and credit wallet (requires amount)
+  // approve = confirm + credit wallet
   if (action === 'approve') {
     if (dep.status === 'CONFIRMED') {
-      return NextResponse.json({ ok: true, deposit: dep }); // already done
+      return NextResponse.json({ ok: true, deposit: dep });
     }
+
     if (dep.amount == null || Number(dep.amount) <= 0) {
       return NextResponse.json(
         { ok: false, error: 'Cannot approve deposit without a valid amount' },
@@ -82,7 +78,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: true, deposit: updated });
   }
 
-  // Reject = FAILED (no wallet changes)
+  // reject = failed (no wallet changes)
   if (action === 'reject') {
     const updated = await prisma.depositIntent.update({
       where: { id },
