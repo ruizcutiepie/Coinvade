@@ -3,25 +3,8 @@ import { getServerSession } from 'next-auth';
 import authOptions from '@/lib/auth';
 import prisma from '@/lib/prisma';
 
-function pickDepositModel(prismaAny: any) {
-  const candidates = [
-    'deposit',
-    'deposits',
-    'Deposit',
-    'DepositRequest',
-    'depositRequest',
-    'deposit_request',
-    'depositRequests',
-  ];
-
-  for (const key of candidates) {
-    if (prismaAny?.[key]?.findUnique) return prismaAny[key];
-  }
-
-  const keys = Object.keys(prismaAny || {}).filter((k) => prismaAny?.[k]?.findUnique);
-  throw new Error(
-    `No deposit model found on Prisma client. Available models (findUnique): ${keys.join(', ')}`
-  );
+function json(ok: boolean, data: any, status = 200) {
+  return NextResponse.json({ ok, ...data }, { status });
 }
 
 export async function POST(
@@ -29,87 +12,65 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session: any = await getServerSession(authOptions as any);
+    const session = (await getServerSession(authOptions as any)) as any;
     const user = session?.user as any;
 
     if (!user || user.role !== 'ADMIN') {
-      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+      return json(false, { error: 'Unauthorized' }, 401);
     }
 
     const { id } = await params;
 
     const body = await req.json().catch(() => ({}));
-    const action = String(body?.action || '').toUpperCase();
+    const action = String(body?.action || '').toUpperCase(); // APPROVE / REJECT
 
     if (action !== 'APPROVE' && action !== 'REJECT') {
-      return NextResponse.json(
-        { ok: false, error: "Invalid action. Use 'APPROVE' or 'REJECT'." },
-        { status: 400 }
-      );
+      return json(false, { error: "Invalid action. Use 'APPROVE' or 'REJECT'." }, 400);
     }
 
-    const prismaAny: any = prisma;
-    const DepositModel = pickDepositModel(prismaAny);
-
-    const deposit = await DepositModel.findUnique({ where: { id } });
-
-    if (!deposit) {
-      return NextResponse.json({ ok: false, error: 'Deposit not found' }, { status: 404 });
-    }
-
-    if (deposit.status !== 'PENDING') {
-      return NextResponse.json(
-        { ok: false, error: 'Deposit already processed' },
-        { status: 400 }
-      );
-    }
-
-    if (action === 'REJECT') {
-      const updated = await DepositModel.update({
-        where: { id },
-        data: { status: 'REJECTED' },
-      });
-      return NextResponse.json({ ok: true, deposit: updated });
-    }
-
-    // APPROVE: mark approved + credit wallet
+    // NOTE: adjust model name if yours is DepositIntent (based on Prisma Studio screenshot)
     const updated = await prisma.$transaction(async (tx) => {
-      const updatedDeposit = await (tx as any)[DepositModel._model || 'deposit']?.update?.({
+      const dep = await tx.depositIntent.findUnique({ where: { id } });
+      if (!dep) throw new Error('Deposit not found');
+
+      // prevent double-processing
+      if (dep.status !== 'PENDING') return dep;
+
+      if (action === 'REJECT') {
+        return await tx.depositIntent.update({
+          where: { id },
+          data: { status: 'REJECTED' },
+        });
+      }
+
+      // APPROVE: mark approved + credit wallet
+      const amount = Number(dep.amount || 0);
+      if (!amount || amount <= 0) throw new Error('Deposit amount is invalid');
+
+      const wallet = await tx.wallet.findFirst({
+        where: { userId: dep.userId, coin: dep.coin },
+      });
+
+      if (wallet) {
+        await tx.wallet.update({
+          where: { id: wallet.id },
+          data: { balance: { increment: amount } },
+        });
+      } else {
+        await tx.wallet.create({
+          data: { userId: dep.userId, coin: dep.coin, balance: amount },
+        });
+      }
+
+      return await tx.depositIntent.update({
         where: { id },
         data: { status: 'APPROVED' },
-      }).catch(async () => {
-        // fallback: use DepositModel outside tx if tx model name isn't accessible
-        return await DepositModel.update({ where: { id }, data: { status: 'APPROVED' } });
       });
-
-      // Wallet upsert (requires unique composite userId_coin in schema)
-      // If your wallet unique key name differs, update the `where` block.
-      await tx.wallet.upsert({
-        where: {
-          userId_coin: {
-            userId: deposit.userId,
-            coin: deposit.coin,
-          },
-        },
-        create: {
-          userId: deposit.userId,
-          coin: deposit.coin,
-          balance: deposit.amount ?? 0,
-        },
-        update: {
-          balance: { increment: deposit.amount ?? 0 },
-        },
-      });
-
-      return updatedDeposit;
     });
 
-    return NextResponse.json({ ok: true, deposit: updated });
+    return json(true, { deposit: updated });
   } catch (e: any) {
     console.error('[api/admin/deposits/[id]] POST error', e);
-    return NextResponse.json(
-      { ok: false, error: e?.message || 'Server error' },
-      { status: 500 }
-    );
+    return json(false, { error: e?.message || 'Server error' }, 500);
   }
 }

@@ -54,6 +54,16 @@ async function safeJson(res: Response) {
   }
 }
 
+function resultLabel(won: boolean | null) {
+  if (won == null) return 'Pending';
+  return won ? 'Win' : 'Loss';
+}
+
+function resultClass(won: boolean | null) {
+  if (won == null) return 'text-white/60';
+  return won ? 'text-emerald-300' : 'text-rose-300';
+}
+
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
@@ -70,7 +80,7 @@ export default function AdminDashboard() {
         throw new Error(j?.error || 'Failed to load metrics');
       }
 
-      setMetrics(j.metrics);
+      setMetrics(j.metrics as AdminMetrics);
     } catch (e: any) {
       setMetrics(null);
       setError(e?.message || 'Failed to load metrics');
@@ -178,23 +188,35 @@ export default function AdminDashboard() {
 
         {/* QUEUE COUNTS */}
         <section className="mb-8 grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-white/10 bg-black/60 p-4">
+          <a
+            href="/admin/deposits"
+            className="rounded-2xl border border-white/10 bg-black/60 p-4 hover:border-white/20"
+          >
             <div className="text-[11px] uppercase tracking-[0.16em] text-white/50">
               Pending Deposits
             </div>
             <div className="mt-2 text-xl font-semibold text-amber-200">
               {metrics ? metrics.pendingDeposits : '—'}
             </div>
-          </div>
+            <div className="mt-1 text-[11px] text-white/50">
+              Click to review
+            </div>
+          </a>
 
-          <div className="rounded-2xl border border-white/10 bg-black/60 p-4">
+          <a
+            href="/admin/withdrawals"
+            className="rounded-2xl border border-white/10 bg-black/60 p-4 hover:border-white/20"
+          >
             <div className="text-[11px] uppercase tracking-[0.16em] text-white/50">
               Pending Withdrawals
             </div>
             <div className="mt-2 text-xl font-semibold text-amber-200">
               {metrics ? metrics.pendingWithdrawals : '—'}
             </div>
-          </div>
+            <div className="mt-1 text-[11px] text-white/50">
+              Click to review
+            </div>
+          </a>
         </section>
 
         {loading && (
@@ -205,72 +227,110 @@ export default function AdminDashboard() {
         <section className="grid gap-6 md:grid-cols-2">
           {/* USERS */}
           <div className="rounded-2xl border border-white/10 bg-black/60 p-4">
-            <h2 className="mb-3 text-lg font-semibold">Recent Users</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Recent Users</h2>
+              <span className="text-xs text-white/50">
+                showing {recentUsers.length}
+              </span>
+            </div>
 
             {recentUsers.length === 0 ? (
               <div className="py-4 text-sm text-white/50">No users yet.</div>
             ) : (
-              <table className="min-w-full text-xs">
-                <thead className="uppercase text-white/50">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Email</th>
-                    <th className="px-3 py-2 text-left">Role</th>
-                    <th className="px-3 py-2 text-left">Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentUsers.map((u) => (
-                    <tr key={u.id} className="border-t border-white/5">
-                      <td className="px-3 py-2">{u.email ?? '—'}</td>
-                      <td className="px-3 py-2">{u.role}</td>
-                      <td className="px-3 py-2 text-white/60">
-                        {fmtDate(u.createdAt)}
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-xs">
+                  <thead className="uppercase tracking-[0.14em] text-white/50">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Email</th>
+                      <th className="px-3 py-2 text-left">Role</th>
+                      <th className="px-3 py-2 text-left">Created</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {recentUsers.map((u) => (
+                      <tr
+                        key={u.id}
+                        className="border-t border-white/5 hover:bg-white/5"
+                      >
+                        <td className="px-3 py-2">{u.email ?? '—'}</td>
+                        <td className="px-3 py-2">{u.role}</td>
+                        <td className="px-3 py-2 text-white/60">
+                          {fmtDate(u.createdAt)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
+
+            <div className="mt-3">
+              <a
+                href="/admin/users"
+                className="text-xs text-cyan-300 hover:text-cyan-200"
+              >
+                View all users →
+              </a>
+            </div>
           </div>
 
           {/* TRADES */}
           <div className="rounded-2xl border border-white/10 bg-black/60 p-4">
-            <h2 className="mb-3 text-lg font-semibold">Recent Trades</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Recent Trades</h2>
+              <span className="text-xs text-white/50">
+                showing {recentTrades.length}
+              </span>
+            </div>
 
             {recentTrades.length === 0 ? (
               <div className="py-4 text-sm text-white/50">No trades yet.</div>
             ) : (
-              <table className="min-w-full text-xs">
-                <thead className="uppercase text-white/50">
-                  <tr>
-                    <th className="px-3 py-2 text-left">User</th>
-                    <th className="px-3 py-2 text-left">Pair</th>
-                    <th className="px-3 py-2 text-left">Dir</th>
-                    <th className="px-3 py-2 text-right">Stake</th>
-                    <th className="px-3 py-2 text-right">Payout</th>
-                    <th className="px-3 py-2 text-left">Result</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentTrades.map((t) => (
-                    <tr key={t.id} className="border-t border-white/5">
-                      <td className="px-3 py-2">{t.user?.email ?? '—'}</td>
-                      <td className="px-3 py-2">{t.pair}</td>
-                      <td className="px-3 py-2">{t.direction}</td>
-                      <td className="px-3 py-2 text-right">{fmt(t.amount)}</td>
-                      <td className="px-3 py-2 text-right">{fmt(t.payout)}</td>
-                      <td className="px-3 py-2">
-                        {t.won == null
-                          ? 'Pending'
-                          : t.won
-                          ? 'Win'
-                          : 'Loss'}
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-xs">
+                  <thead className="uppercase tracking-[0.14em] text-white/50">
+                    <tr>
+                      <th className="px-3 py-2 text-left">User</th>
+                      <th className="px-3 py-2 text-left">Pair</th>
+                      <th className="px-3 py-2 text-left">Dir</th>
+                      <th className="px-3 py-2 text-right">Stake</th>
+                      <th className="px-3 py-2 text-right">Payout</th>
+                      <th className="px-3 py-2 text-left">Result</th>
+                      <th className="px-3 py-2 text-left">Time</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {recentTrades.map((t) => (
+                      <tr
+                        key={t.id}
+                        className="border-t border-white/5 hover:bg-white/5"
+                      >
+                        <td className="px-3 py-2">{t.user?.email ?? '—'}</td>
+                        <td className="px-3 py-2">{t.pair}</td>
+                        <td className="px-3 py-2">{t.direction}</td>
+                        <td className="px-3 py-2 text-right">{fmt(t.amount)}</td>
+                        <td className="px-3 py-2 text-right">{fmt(t.payout)}</td>
+                        <td className={`px-3 py-2 ${resultClass(t.won)}`}>
+                          {resultLabel(t.won)}
+                        </td>
+                        <td className="px-3 py-2 text-white/60">
+                          {fmtDate(t.createdAt)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
+
+            <div className="mt-3">
+              <a
+                href="/admin/trades"
+                className="text-xs text-cyan-300 hover:text-cyan-200"
+              >
+                View all trades →
+              </a>
+            </div>
           </div>
         </section>
       </div>

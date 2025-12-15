@@ -1,65 +1,78 @@
-// src/app/api/withdraw-request/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import authOptions from '@/lib/auth';
 import prisma from '@/lib/prisma';
 
+function json(ok: boolean, data: any, status = 200) {
+  return NextResponse.json({ ok, ...data }, { status });
+}
+
+function pickWithdrawalModel(prismaAny: any) {
+  return (
+    prismaAny.withdrawalRequest ||
+    prismaAny.withdrawal ||
+    prismaAny.withdrawals ||
+    prismaAny.withdrawalModel ||
+    null
+  );
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const session = (await getServerSession(authOptions as any)) as any;
-    const user = session?.user as any;
+    const session = await getServerSession(authOptions as any);
+    const user = (session as any)?.user;
 
-    if (!user?.id) {
-      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!user?.id) return json(false, { error: 'Unauthorized' }, 401);
 
     const body = await req.json().catch(() => ({}));
-
     const coin = String(body?.coin || 'USDT').toUpperCase();
     const network = String(body?.network || '').trim();
     const address = String(body?.address || '').trim();
-    const amount = Number(body?.amount);
+    const amount = Number(body?.amount || 0);
 
-    if (!network || !address || !Number.isFinite(amount) || amount <= 0) {
-      return NextResponse.json({ ok: false, error: 'Invalid request' }, { status: 400 });
+    if (!address) return json(false, { error: 'Address is required' }, 400);
+    if (!network) return json(false, { error: 'Network is required' }, 400);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return json(false, { error: 'Invalid amount' }, 400);
     }
 
-    // wallet lookup (USDT)
-    const wallet = await prisma.wallet.findFirst({
-      where: { userId: user.id, coin },
-      select: { id: true, balance: true },
-    });
-
-    if (!wallet) {
-      return NextResponse.json({ ok: false, error: `Wallet not found for ${coin}` }, { status: 404 });
-    }
-
-    if (wallet.balance < amount) {
-      return NextResponse.json({ ok: false, error: 'Insufficient balance' }, { status: 400 });
-    }
-
-    // get Withdrawal model safely (in case naming differs)
     const prismaAny = prisma as any;
-    const withdrawalModel =
-      prismaAny.withdrawal ?? prismaAny.withdrawalRequest ?? prismaAny.withdrawals;
-
-    if (!withdrawalModel) {
-      return NextResponse.json({ ok: false, error: 'Withdrawal model not found in Prisma' }, { status: 500 });
+    const WithdrawalModel = pickWithdrawalModel(prismaAny);
+    if (!WithdrawalModel) {
+      return json(
+        false,
+        {
+          error:
+            "No withdrawal model found on Prisma client. Expected one of: withdrawalRequest / withdrawal / withdrawals / withdrawalModel.",
+        },
+        500
+      );
     }
 
     const created = await prisma.$transaction(async (tx) => {
-      // 1) deduct balance immediately
+      const txAny = tx as any;
+      const TxWithdrawalModel = pickWithdrawalModel(txAny);
+      if (!TxWithdrawalModel) {
+        throw new Error('Withdrawal model missing inside transaction');
+      }
+
+      const wallet = await tx.wallet.findFirst({
+        where: { userId: user.id, coin },
+      });
+
+      const balance = Number(wallet?.balance || 0);
+      if (!wallet || balance < amount) {
+        throw new Error('Insufficient balance');
+      }
+
+      // ✅ deduct immediately (reserve funds)
       await tx.wallet.update({
         where: { id: wallet.id },
         data: { balance: { decrement: amount } },
       });
 
-      // 2) create withdrawal request
-      const txAny = tx as any;
-      const txWithdrawalModel =
-        txAny.withdrawal ?? txAny.withdrawalRequest ?? txAny.withdrawals;
-
-      const w = await txWithdrawalModel.create({
+      // ✅ create withdrawal request (PENDING)
+      const w = await TxWithdrawalModel.create({
         data: {
           userId: user.id,
           coin,
@@ -74,12 +87,13 @@ export async function POST(req: NextRequest) {
       return w;
     });
 
-    return NextResponse.json({ ok: true, withdrawal: created });
+    return json(true, { withdrawal: created });
   } catch (e: any) {
+    const msg = String(e?.message || 'Server error');
+    if (msg.toLowerCase().includes('insufficient balance')) {
+      return json(false, { error: msg }, 400);
+    }
     console.error('[withdraw-request] error', e);
-    return NextResponse.json(
-      { ok: false, error: e?.message || 'Server error' },
-      { status: 500 }
-    );
+    return json(false, { error: msg }, 500);
   }
 }
