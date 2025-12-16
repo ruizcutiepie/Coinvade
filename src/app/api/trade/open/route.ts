@@ -20,18 +20,23 @@ export async function POST(req: NextRequest) {
     const direction = String(body?.direction || 'LONG').toUpperCase(); // LONG/SHORT
     const amount = Number(body?.amount || 0); // stake in USDT
     const duration = Number(body?.duration || 60); // seconds
+    let entryPrice = body?.entryPrice != null ? Number(body.entryPrice) : null;
 
-    if (!pair.endsWith('USDT'))
-      return json(false, { error: 'Only USDT pairs supported' }, 400);
-    if (direction !== 'LONG' && direction !== 'SHORT')
-      return json(false, { error: 'Invalid direction' }, 400);
-    if (!Number.isFinite(amount) || amount <= 0)
-      return json(false, { error: 'Invalid amount' }, 400);
-    if (!Number.isFinite(duration) || duration <= 0)
-      return json(false, { error: 'Invalid duration' }, 400);
+    if (!pair.endsWith('USDT')) return json(false, { error: 'Only USDT pairs supported' }, 400);
+    if (direction !== 'LONG' && direction !== 'SHORT') return json(false, { error: 'Invalid direction' }, 400);
+    if (!Number.isFinite(amount) || amount <= 0) return json(false, { error: 'Invalid amount' }, 400);
+    if (!Number.isFinite(duration) || duration <= 0) return json(false, { error: 'Invalid duration' }, 400);
+
+    // ✅ If client doesn't provide entryPrice, fetch it here so resolve will work.
+    if (!Number.isFinite(entryPrice as any) || (entryPrice as any) <= 0) {
+      const p = Number(await getPrice(pair));
+      if (!Number.isFinite(p) || p <= 0) {
+        return json(false, { error: 'Failed to fetch entry price' }, 500);
+      }
+      entryPrice = p;
+    }
 
     const created = await prisma.$transaction(async (tx) => {
-      // Ensure wallet exists (USDT)
       const wallet = await tx.wallet.upsert({
         where: { userId_coin: { userId: user.id, coin: 'USDT' } },
         update: {},
@@ -40,28 +45,15 @@ export async function POST(req: NextRequest) {
 
       const balance = Number((wallet as any).balance ?? 0);
       if (!Number.isFinite(balance) || balance < amount) {
-        const err: any = new Error('Insufficient balance');
-        err.status = 400;
-        throw err;
+        throw new Error('Insufficient balance');
       }
 
-      // Deduct stake immediately
-      const updatedWallet = await tx.wallet.update({
+      // ✅ Deduct stake immediately
+      await tx.wallet.update({
         where: { id: wallet.id },
         data: { balance: { decrement: amount } },
       });
 
-      // If UI did not send entryPrice, fetch it now (so resolve is reliable)
-      let entryPrice: number | null =
-        body?.entryPrice != null ? Number(body.entryPrice) : null;
-
-      if (entryPrice == null || !Number.isFinite(entryPrice) || entryPrice <= 0) {
-        const p = Number(await getPrice(pair));
-        if (!Number.isFinite(p) || p <= 0) throw new Error('Failed to fetch entry price');
-        entryPrice = p;
-      }
-
-      // Create trade
       const trade = await tx.trade.create({
         data: {
           userId: user.id,
@@ -69,23 +61,21 @@ export async function POST(req: NextRequest) {
           direction,
           amount,
           duration,
-          entryPrice,
+          entryPrice: entryPrice ?? null,
           payout: 0,
           won: null,
-          exitPrice: null,
-          closePrice: null,
-          resolvedAt: null,
         },
       });
 
-      return { trade, wallet: updatedWallet };
+      const freshWallet = await tx.wallet.findUnique({ where: { id: wallet.id } });
+      return { trade, wallet: freshWallet };
     });
 
     return json(true, { trade: created.trade, wallet: created.wallet });
   } catch (e: any) {
-    const status = e?.status || 500;
     const msg = String(e?.message || 'Server error');
+    if (msg.toLowerCase().includes('insufficient')) return json(false, { error: msg }, 400);
     console.error('[api/trade/open] POST error', e);
-    return json(false, { error: msg }, status);
+    return json(false, { error: msg }, 500);
   }
 }
