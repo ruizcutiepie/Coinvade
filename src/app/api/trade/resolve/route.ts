@@ -1,151 +1,109 @@
-// src/app/api/trade/resolve/route.ts
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import authOptions from '@/lib/auth';
+import prisma from '@/lib/prisma';
 import { getPrice } from '@/lib/binance';
 
-export async function POST(req: Request) {
+function json(ok: boolean, data: any, status = 200) {
+  return NextResponse.json({ ok, ...data }, { status });
+}
+
+export async function POST(req: NextRequest) {
   try {
+    // ✅ auth required
+    const session = (await getServerSession(authOptions as any)) as any;
+    const actor = session?.user as any;
+    if (!actor?.id) return json(false, { error: 'Unauthorized' }, 401);
+
     const body = await req.json().catch(() => ({} as any));
-    const tradeId = body?.tradeId as string | undefined;
+    const tradeId = String(body?.tradeId || '');
 
-    if (!tradeId) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing tradeId' },
-        { status: 400 },
-      );
-    }
+    if (!tradeId) return json(false, { error: 'Missing tradeId' }, 400);
 
-    // 1) Load trade
-    const trade = await prisma.trade.findUnique({
-      where: { id: tradeId },
-    });
-
-    if (!trade) {
-      return NextResponse.json(
-        { ok: false, error: 'Trade not found' },
-        { status: 404 },
-      );
-    }
-
-    // If already has an exitPrice, just return it
-    if (trade.exitPrice !== null && trade.exitPrice !== undefined) {
-      return NextResponse.json(
-        { ok: true, trade, wallet: null },
-        { status: 200 },
-      );
-    }
-
-    // 2) Determine symbol from pair (e.g. "BTCUSDT")
-    const symbol = trade.pair;
-    if (!symbol) {
-      return NextResponse.json(
-        { ok: false, error: 'Trade has no pair set' },
-        { status: 400 },
-      );
-    }
-
-    // 3) Current price from Binance helper
-    const priceRaw = await getPrice(symbol);
-    const currentPrice = Number(priceRaw);
-
-    if (!Number.isFinite(currentPrice)) {
-      return NextResponse.json(
-        { ok: false, error: 'Invalid current price from price feed' },
-        { status: 500 },
-      );
-    }
-
-    // 4) Entry price and direction
-    const entry = Number(trade.entryPrice ?? 0);
-    const directionRaw = (trade.direction ?? '').toString().toUpperCase();
-    const isLong = directionRaw === 'LONG';
-    const isShort = directionRaw === 'SHORT';
-
-    const amount = Number(trade.amount) || 0;
-
-    let wonFlag: boolean | null = null;
-    let payout = 0;
-
-    if (currentPrice > entry) {
-      // price went up
-      wonFlag = isLong ? true : isShort ? false : null;
-    } else if (currentPrice < entry) {
-      // price went down
-      wonFlag = isShort ? true : isLong ? false : null;
-    } else {
-      // tie
-      wonFlag = null;
-    }
-
-    if (wonFlag === true) {
-      payout = amount * 1.8; // win = stake + 80% profit
-    } else if (wonFlag === false) {
-      payout = 0; // loss
-    } else {
-      payout = amount; // tie = refund
-    }
-
-    // 5) Transaction: update trade + wallet
     const result = await prisma.$transaction(async (tx) => {
-      // update trade
+      const trade = await tx.trade.findUnique({ where: { id: tradeId } });
+      if (!trade) throw new Error('Trade not found');
+
+      // ✅ only owner or admin can resolve
+      if (trade.userId !== actor.id && actor.role !== 'ADMIN') {
+        const err: any = new Error('Forbidden');
+        err.status = 403;
+        throw err;
+      }
+
+      // ✅ idempotent (no double-credit)
+      if (trade.exitPrice != null || trade.won != null) {
+        const wallet = await tx.wallet.findUnique({
+          where: { userId_coin: { userId: trade.userId, coin: 'USDT' } },
+        });
+        return { trade, wallet };
+      }
+
+      const symbol = trade.pair;
+      if (!symbol) throw new Error('Trade has no pair set');
+
+      const currentPrice = Number(await getPrice(symbol));
+      if (!Number.isFinite(currentPrice)) {
+        throw new Error('Invalid current price from price feed');
+      }
+
+      const entry = Number(trade.entryPrice ?? 0);
+      if (!Number.isFinite(entry) || entry <= 0) {
+        throw new Error('Missing entryPrice on trade');
+      }
+
+      const direction = String(trade.direction || '').toUpperCase();
+      const isLong = direction === 'LONG';
+      const isShort = direction === 'SHORT';
+      if (!isLong && !isShort) throw new Error('Invalid direction on trade');
+
+      const stake = Number(trade.amount) || 0;
+
+      // ✅ outcome
+      let wonFlag: boolean | null = null;
+      if (currentPrice > entry) wonFlag = isLong ? true : false;
+      else if (currentPrice < entry) wonFlag = isShort ? true : false;
+      else wonFlag = null; // tie
+
+      // ✅ payout assumes the stake was already deducted on "place trade"
+      let payout = 0;
+      if (wonFlag === true) payout = stake * 1.8; // stake + 80% profit
+      else if (wonFlag === false) payout = 0;
+      else payout = stake; // tie = refund
+
       const updatedTrade = await tx.trade.update({
         where: { id: trade.id },
         data: {
           exitPrice: currentPrice,
+          closePrice: currentPrice,
           payout,
           won: wonFlag,
+          resolvedAt: new Date(),
         },
       });
 
-      // find or create USDT wallet for this user
-      let wallet = await tx.wallet.findFirst({
-        where: { userId: trade.userId, coin: 'USDT' },
+      // ✅ credit payout
+      let wallet = await tx.wallet.upsert({
+        where: { userId_coin: { userId: trade.userId, coin: 'USDT' } },
+        update: {},
+        create: { userId: trade.userId, coin: 'USDT', balance: 0 },
       });
 
-      if (!wallet) {
-        wallet = await tx.wallet.create({
-          data: {
-            userId: trade.userId,
-            coin: 'USDT',
-            balance: 0,
-          },
-        });
-      }
-
-      // credit payout if any
-      let updatedWallet = wallet;
       if (payout > 0) {
-        updatedWallet = await tx.wallet.update({
+        wallet = await tx.wallet.update({
           where: { id: wallet.id },
-          data: {
-            balance: { increment: payout },
-          },
+          data: { balance: { increment: payout } },
         });
       }
 
-      return {
-        trade: updatedTrade,
-        wallet: updatedWallet,
-      };
+      return { trade: updatedTrade, wallet };
     });
 
-    return NextResponse.json(
-      {
-        ok: true,
-        trade: result.trade,
-        wallet: result.wallet,
-      },
-      { status: 200 },
-    );
-  } catch (error) {
-    console.error('[trade/resolve] error:', error);
-
-    const message =
-      error instanceof Error ? error.message : 'Unknown server error';
-
-    return NextResponse.json(
-      { ok: false, error: message },
-      { status: 500 },
-    );
+    return json(true, { trade: result.trade, wallet: result.wallet }, 200);
+  } catch (error: any) {
+    const status = error?.status || 500;
+    const message = error instanceof Error ? error.message : 'Server error';
+    console.error('[api/trade/resolve] error:', error);
+    return json(false, { error: message }, status);
   }
 }
