@@ -59,7 +59,10 @@ export default function TradePage() {
   const [direction, setDirection] = useState<Direction>('long');
 
   const [showCountdown, setShowCountdown] = useState(false);
+
+  // ✅ include tradeId so we can resolve the same trade later
   const [run, setRun] = useState<{
+    tradeId: string;
     pair: string;
     amount: number;
     direction: Direction;
@@ -84,6 +87,18 @@ export default function TradePage() {
     ? pair
     : `${pair.replace('USDT', '')}/USDT`;
 
+  function broadcastWallet(next: number) {
+    setBalance(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('coinvade.walletBalance', String(next));
+      window.dispatchEvent(
+        new CustomEvent('coinvade-wallet-updated', {
+          detail: { balance: next },
+        })
+      );
+    }
+  }
+
   // Load wallet balance from backend and broadcast
   async function loadWallet() {
     try {
@@ -91,16 +106,7 @@ export default function TradePage() {
       const j = await res.json();
       if (res.ok && j?.ok && j.wallet) {
         const next = Number(j.wallet.balance ?? 0);
-        setBalance(next);
-
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem('coinvade.walletBalance', String(next));
-          window.dispatchEvent(
-            new CustomEvent('coinvade-wallet-updated', {
-              detail: { balance: next },
-            })
-          );
-        }
+        broadcastWallet(next);
       }
     } catch (err) {
       console.error('[trade] failed to load wallet', err);
@@ -113,17 +119,13 @@ export default function TradePage() {
       const stored = window.localStorage.getItem('coinvade.walletBalance');
       if (stored != null && !Number.isNaN(Number(stored))) {
         const next = Number(stored);
-        setBalance(next);
-        window.dispatchEvent(
-          new CustomEvent('coinvade-wallet-updated', {
-            detail: { balance: next },
-          })
-        );
+        broadcastWallet(next);
         return;
       }
     }
     // Fallback to backend
     loadWallet();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleOpenConfirm(nextDirection: Direction) {
@@ -145,17 +147,53 @@ export default function TradePage() {
     setConfirmOpen(true);
   }
 
-  function startConfirmedTrade() {
+  // ✅ This now calls /api/trade/open to deduct stake + create a tradeId
+  async function startConfirmedTrade() {
     if (!pendingTrade) return;
 
     const { pair, amount, direction, duration } = pendingTrade;
 
-    setDirection(direction);
-    setRun({ pair, amount, direction, duration });
-    setShowCountdown(true);
+    try {
+      const res = await fetch('/api/trade/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pair,
+          direction: direction === 'long' ? 'LONG' : 'SHORT',
+          amount,
+          duration,
+          // entryPrice is optional now; backend can fetch it
+          entryPrice: null,
+        }),
+      });
 
-    setConfirmOpen(false);
-    setPendingTrade(null);
+      const j = await res.json().catch(() => ({}));
+
+      if (!res.ok || !j?.ok) {
+        alert(j?.error || 'Failed to open trade');
+        return;
+      }
+
+      const tradeId = String(j.trade?.id || '');
+      if (!tradeId) {
+        alert('Trade opened but missing tradeId');
+        return;
+      }
+
+      // ✅ update UI wallet immediately from server truth (deducted)
+      const nextBal = Number(j.wallet?.balance ?? 0);
+      if (Number.isFinite(nextBal)) broadcastWallet(nextBal);
+
+      setDirection(direction);
+      setRun({ tradeId, pair, amount, direction, duration });
+      setShowCountdown(true);
+
+      setConfirmOpen(false);
+      setPendingTrade(null);
+    } catch (e) {
+      console.error('[trade] open error', e);
+      alert('Failed to open trade');
+    }
   }
 
   function onCountdownClose() {
@@ -164,7 +202,7 @@ export default function TradePage() {
   }
 
   // Called when CountdownTrade finishes (timer hit 0)
-  function onTradeFinish(res: {
+  function onTradeFinish(_clientRes: {
     pair: string;
     direction: Direction;
     amount: number;
@@ -175,86 +213,58 @@ export default function TradePage() {
     payout: number;
     ts: number;
   }) {
-    // Keep TS signature sync by wrapping async logic
     (async () => {
       try {
-        const response = await fetch('/api/trades/settle', {
+        const tradeId = run?.tradeId;
+        if (!tradeId) {
+          console.error('[trade] missing tradeId on finish');
+          return;
+        }
+
+        // ✅ Resolve on backend (credits payout/refund based on outcome)
+        const response = await fetch('/api/trade/resolve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(res),
+          body: JSON.stringify({ tradeId }),
         });
 
-        const j = await response.json();
+        const j = await response.json().catch(() => ({}));
 
         if (!response.ok || !j?.ok) {
-          console.error('[trade] backend settle failed', j);
-
-          // Fallback: still record client-side result so user sees something
-          const fallbackRecord: TradeResult = {
-            id: `${res.ts}-${Math.random().toString(36).slice(2, 7)}`,
-            ts: res.ts,
-            pair: res.pair,
-            direction: res.direction,
-            amount: res.amount,
-            duration: res.duration,
-            entryPrice: Number(res.entryPrice ?? 0),
-            exitPrice: Number(res.exitPrice ?? 0),
-            won: res.won,
-            payout: res.payout,
-          };
-          setTrades((prev) => [fallbackRecord, ...prev].slice(0, 100));
+          console.error('[trade] backend resolve failed', j);
           return;
         }
 
         const serverTrade = j.trade;
         const serverWallet = j.wallet;
 
+        const ts = serverTrade?.createdAt
+          ? new Date(serverTrade.createdAt).getTime()
+          : Date.now();
+
         const record: TradeResult = {
-          id: serverTrade.id,
-          ts: serverTrade.ts,
-          pair: serverTrade.pair,
-          direction: serverTrade.direction,
-          amount: serverTrade.amount,
-          duration: serverTrade.duration,
-          entryPrice: serverTrade.entryPrice,
-          exitPrice: serverTrade.exitPrice,
-          won: serverTrade.won,
-          payout: serverTrade.payout,
+          id: String(serverTrade.id),
+          ts,
+          pair: String(serverTrade.pair || _clientRes.pair),
+          direction:
+            String(serverTrade.direction || '').toUpperCase() === 'SHORT'
+              ? 'short'
+              : 'long',
+          amount: Number(serverTrade.amount ?? _clientRes.amount),
+          duration: Number(serverTrade.duration ?? _clientRes.duration),
+          entryPrice: Number(serverTrade.entryPrice ?? 0),
+          exitPrice: Number(serverTrade.exitPrice ?? 0),
+          won: serverTrade.won === true,
+          payout: Number(serverTrade.payout ?? 0),
         };
 
         setTrades((prev) => [record, ...prev].slice(0, 100));
 
-        // Use server's balance as source of truth
-        const nextBalance = Number(serverWallet.balance);
-        setBalance(nextBalance);
-
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(
-            'coinvade.walletBalance',
-            String(nextBalance)
-          );
-          window.dispatchEvent(
-            new CustomEvent('coinvade-wallet-updated', {
-              detail: { balance: nextBalance },
-            })
-          );
-        }
+        // ✅ update wallet UI from server truth (credited/refunded)
+        const nextBalance = Number(serverWallet?.balance ?? 0);
+        if (Number.isFinite(nextBalance)) broadcastWallet(nextBalance);
       } catch (err) {
         console.error('[trade] onTradeFinish error', err);
-
-        const fallbackRecord: TradeResult = {
-          id: `${res.ts}-${Math.random().toString(36).slice(2, 7)}`,
-          ts: res.ts,
-          pair: res.pair,
-          direction: res.direction,
-          amount: res.amount,
-          duration: res.duration,
-          entryPrice: Number(res.entryPrice ?? 0),
-          exitPrice: Number(res.exitPrice ?? 0),
-          won: res.won,
-          payout: res.payout,
-        };
-        setTrades((prev) => [fallbackRecord, ...prev].slice(0, 100));
       }
     })();
   }
@@ -324,9 +334,7 @@ export default function TradePage() {
                   : 'border-white/10 bg-black/40 hover:border-white/40'
               }`}
             >
-              <div className="text-sm font-semibold text-white">
-                {d.label}
-              </div>
+              <div className="text-sm font-semibold text-white">{d.label}</div>
               <div className="mt-1 text-[11px] text-white/60">
                 {tr('trade.profitRate', lang)}{' '}
                 <span className="ml-1 text-cyan-300">{d.profit}</span>
@@ -364,9 +372,7 @@ export default function TradePage() {
 
         {/* pair selector */}
         <div className="mb-4 max-w-xs">
-          <label className="mb-1 block text-xs text-white/60">
-            Trading pair
-          </label>
+          <label className="mb-1 block text-xs text-white/60">Trading pair</label>
           <select
             className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none"
             value={pair}
@@ -384,9 +390,7 @@ export default function TradePage() {
         </div>
 
         {/* amount input */}
-        <div className="mb-2 text-sm text-white/60">
-          {tr('trade.openingQty', lang)}
-        </div>
+        <div className="mb-2 text-sm text-white/60">{tr('trade.openingQty', lang)}</div>
         <div className="mb-4">
           <input
             type="number"
@@ -422,9 +426,7 @@ export default function TradePage() {
 
         <div className="mb-3 flex items-center justify-between text-xs text-white/50">
           <span>{tr('trade.accountLabel', lang)}</span>
-          <span>
-            {balance != null ? fmt(balance, 2) : '—'} {mode}
-          </span>
+          <span>{balance != null ? fmt(balance, 2) : '—'} {mode}</span>
         </div>
 
         {/* big Buy / Sell buttons (open confirmation) */}
@@ -449,24 +451,16 @@ export default function TradePage() {
             <span className="border-b-2 border-cyan-400 pb-1 text-cyan-200">
               {tr('trade.inTransaction', lang)}
             </span>
-            <span className="pb-1 text-white/40">
-              {tr('trade.historyTab', lang)}
-            </span>
+            <span className="pb-1 text-white/40">{tr('trade.historyTab', lang)}</span>
           </div>
 
           {run && showCountdown ? (
             <div className="text-xs text-white/60">
-              Trade running on{' '}
-              <span className="text-white">{pairLabel}</span> for{' '}
-              <span className="text-cyan-300">
-                {Math.round(duration)}s
-              </span>{' '}
-              — check the countdown modal.
+              Trade running on <span className="text-white">{pairLabel}</span> for{' '}
+              <span className="text-cyan-300">{Math.round(duration)}s</span> — check the countdown modal.
             </div>
           ) : (
-            <div className="text-xs text-white/40">
-              {tr('trade.noActive', lang)}
-            </div>
+            <div className="text-xs text-white/40">{tr('trade.noActive', lang)}</div>
           )}
         </div>
       </section>
@@ -488,17 +482,13 @@ export default function TradePage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <div className="text-[11px] text-white/60">
-                    {tr('confirm.pair', lang)}
-                  </div>
+                  <div className="text-[11px] text-white/60">{tr('confirm.pair', lang)}</div>
                   <div className="text-sm font-semibold text-white">
                     {pendingTrade.pair.replace('USDT', '/USDT')}
                   </div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-white/60">
-                    {tr('confirm.direction', lang)}
-                  </div>
+                  <div className="text-[11px] text-white/60">{tr('confirm.direction', lang)}</div>
                   <div className="text-sm font-semibold text-white">
                     {pendingTrade.direction === 'long'
                       ? tr('btn.buyLong', lang)
@@ -506,9 +496,7 @@ export default function TradePage() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-white/60">
-                    {tr('confirm.amount', lang)}
-                  </div>
+                  <div className="text-[11px] text-white/60">{tr('confirm.amount', lang)}</div>
                   <div className="text-sm font-semibold text-white">
                     {pendingTrade.amount.toLocaleString(undefined, {
                       minimumFractionDigits: 2,
@@ -518,9 +506,7 @@ export default function TradePage() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-white/60">
-                    {tr('confirm.duration', lang)}
-                  </div>
+                  <div className="text-[11px] text-white/60">{tr('confirm.duration', lang)}</div>
                   <div className="text-sm font-semibold text-white">
                     {pendingTrade.duration} sec
                   </div>

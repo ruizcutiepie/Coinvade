@@ -10,29 +10,27 @@ function json(ok: boolean, data: any, status = 200) {
 
 export async function POST(req: NextRequest) {
   try {
-    // ✅ auth required
     const session = (await getServerSession(authOptions as any)) as any;
     const actor = session?.user as any;
     if (!actor?.id) return json(false, { error: 'Unauthorized' }, 401);
 
     const body = await req.json().catch(() => ({} as any));
     const tradeId = String(body?.tradeId || '');
-
     if (!tradeId) return json(false, { error: 'Missing tradeId' }, 400);
 
     const result = await prisma.$transaction(async (tx) => {
       const trade = await tx.trade.findUnique({ where: { id: tradeId } });
       if (!trade) throw new Error('Trade not found');
 
-      // ✅ only owner or admin can resolve
+      // only owner or admin can resolve
       if (trade.userId !== actor.id && actor.role !== 'ADMIN') {
         const err: any = new Error('Forbidden');
         err.status = 403;
         throw err;
       }
 
-      // ✅ idempotent (no double-credit)
-      if (trade.exitPrice != null || trade.won != null) {
+      // ✅ idempotent: if already resolved, do NOT credit again
+      if (trade.exitPrice != null) {
         const wallet = await tx.wallet.findUnique({
           where: { userId_coin: { userId: trade.userId, coin: 'USDT' } },
         });
@@ -43,7 +41,7 @@ export async function POST(req: NextRequest) {
       if (!symbol) throw new Error('Trade has no pair set');
 
       const currentPrice = Number(await getPrice(symbol));
-      if (!Number.isFinite(currentPrice)) {
+      if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
         throw new Error('Invalid current price from price feed');
       }
 
@@ -59,17 +57,16 @@ export async function POST(req: NextRequest) {
 
       const stake = Number(trade.amount) || 0;
 
-      // ✅ outcome
       let wonFlag: boolean | null = null;
       if (currentPrice > entry) wonFlag = isLong ? true : false;
       else if (currentPrice < entry) wonFlag = isShort ? true : false;
-      else wonFlag = null; // tie
+      else wonFlag = null;
 
-      // ✅ payout assumes the stake was already deducted on "place trade"
+      // stake already deducted on OPEN
       let payout = 0;
-      if (wonFlag === true) payout = stake * 1.8; // stake + 80% profit
+      if (wonFlag === true) payout = stake * 1.8;
       else if (wonFlag === false) payout = 0;
-      else payout = stake; // tie = refund
+      else payout = stake; // refund on tie
 
       const updatedTrade = await tx.trade.update({
         where: { id: trade.id },
@@ -82,7 +79,7 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // ✅ credit payout
+      // wallet upsert + credit payout (if any)
       let wallet = await tx.wallet.upsert({
         where: { userId_coin: { userId: trade.userId, coin: 'USDT' } },
         update: {},
