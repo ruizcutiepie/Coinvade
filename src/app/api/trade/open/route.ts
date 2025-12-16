@@ -1,218 +1,76 @@
-// src/app/api/trade/open/route.ts
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import authOptions from '@/lib/auth';
+import prisma from '@/lib/prisma';
 
-// For now we use your single demo user.
-const DEMO_EMAIL = 'demo@coinvade.local';
-
-// The pairs your app supports
-const ALLOWED_PAIRS = [
-  'BTCUSDT',
-  'ETHUSDT',
-  'SOLUSDT',
-  'XRPUSDT',
-  'ADAUSDT',
-  'BNBUSDT',
-  'DOGEUSDT',
-  'DOTUSDT',
-] as const;
-
-// Helper: get or create the demo user + USDT wallet
-async function getOrCreateDemoUser() {
-  let user = await prisma.user.findUnique({
-    where: { email: DEMO_EMAIL },
-  });
-
-  if (!user) {
-    user = await prisma.user.create({
-      data: { email: DEMO_EMAIL },
-    });
-  }
-
-  let usdtWallet = await prisma.wallet.findFirst({
-    where: { userId: user.id, coin: 'USDT' },
-  });
-
-  if (!usdtWallet) {
-    usdtWallet = await prisma.wallet.create({
-      data: {
-        userId: user.id,
-        coin: 'USDT',
-        balance: 1000, // starting demo balance
-      },
-    });
-  }
-
-  return { user, usdtWallet };
+function json(ok: boolean, data: any, status = 200) {
+  return NextResponse.json({ ok, ...data }, { status });
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json().catch(() => null)) as {
-      pair?: string;
-      direction?: string;
-      amount?: number;
-      duration?: number;
-    } | null;
+    const session = (await getServerSession(authOptions as any)) as any;
+    const user = session?.user as any;
+    if (!user?.id) return json(false, { error: 'Unauthorized' }, 401);
 
-    if (!body) {
-      return NextResponse.json(
-        { ok: false, error: 'Invalid JSON body' },
-        { status: 400 }
-      );
-    }
+    const body = await req.json().catch(() => ({}));
 
-    let { pair, direction, amount, duration } = body;
+    const pair = String(body?.pair || 'BTCUSDT').toUpperCase();
+    const direction = String(body?.direction || 'LONG').toUpperCase(); // LONG/SHORT
+    const amount = Number(body?.amount || 0); // stake in USDT
+    const duration = Number(body?.duration || 60); // seconds
+    const entryPrice = body?.entryPrice != null ? Number(body.entryPrice) : null;
 
-    // ---------- Validate + normalize inputs ----------
+    if (!pair.endsWith('USDT')) return json(false, { error: 'Only USDT pairs supported' }, 400);
+    if (direction !== 'LONG' && direction !== 'SHORT') return json(false, { error: 'Invalid direction' }, 400);
+    if (!Number.isFinite(amount) || amount <= 0) return json(false, { error: 'Invalid amount' }, 400);
+    if (!Number.isFinite(duration) || duration <= 0) return json(false, { error: 'Invalid duration' }, 400);
 
-    if (!pair || typeof pair !== 'string') {
-      return NextResponse.json(
-        { ok: false, error: 'Missing or invalid "pair".' },
-        { status: 400 }
-      );
-    }
-
-    pair = pair.toUpperCase();
-
-    if (!ALLOWED_PAIRS.includes(pair as (typeof ALLOWED_PAIRS)[number])) {
-      return NextResponse.json(
-        { ok: false, error: 'Unsupported trading pair.' },
-        { status: 400 }
-      );
-    }
-
-    if (!direction || typeof direction !== 'string') {
-      return NextResponse.json(
-        { ok: false, error: 'Missing "direction".' },
-        { status: 400 }
-      );
-    }
-
-    const normalizedDirection = direction.toUpperCase();
-    if (normalizedDirection !== 'LONG' && normalizedDirection !== 'SHORT') {
-      return NextResponse.json(
-        { ok: false, error: 'Direction must be "LONG" or "SHORT".' },
-        { status: 400 }
-      );
-    }
-
-    const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) {
-      return NextResponse.json(
-        { ok: false, error: 'Amount must be a positive number.' },
-        { status: 400 }
-      );
-    }
-
-    const dur = Math.round(Number(duration));
-    if (!Number.isFinite(dur) || dur <= 0 || dur > 3600) {
-      return NextResponse.json(
-        { ok: false, error: 'Duration must be between 1 and 3600 seconds.' },
-        { status: 400 }
-      );
-    }
-
-    // ---------- Get demo user + wallet ----------
-
-    const { user } = await getOrCreateDemoUser();
-
-    // ---------- Fetch live entry price ----------
-
-    const url = new URL(req.url);
-    const origin = url.origin; // e.g. http://localhost:3000
-
-    const priceRes = await fetch(
-      `${origin}/api/price?symbol=${encodeURIComponent(pair)}`,
-      { cache: 'no-store' }
-    );
-
-    const priceData = (await priceRes.json().catch(() => null)) as
-      | { price?: number }
-      | null;
-
-    if (!priceRes.ok || !priceData || typeof priceData.price !== 'number') {
-      console.error('Price fetch failed:', priceData);
-      return NextResponse.json(
-        { ok: false, error: 'Unable to fetch price for this pair.' },
-        { status: 502 }
-      );
-    }
-
-    const entryPrice = Number(priceData.price);
-
-    // ---------- Create trade + deduct balance (transaction) ----------
-
-    const trade = await prisma.$transaction(async (tx) => {
-      const wallet = await tx.wallet.findFirst({
-        where: {
-          userId: user.id,
-          coin: 'USDT',
-        },
+    const created = await prisma.$transaction(async (tx) => {
+      // Ensure wallet exists (USDT)
+      const wallet = await tx.wallet.upsert({
+        where: { userId_coin: { userId: user.id, coin: 'USDT' } },
+        update: {},
+        create: { userId: user.id, coin: 'USDT', balance: 0 },
       });
 
-      if (!wallet) {
-        // this will be caught below
-        throw new Error('NO_USDT_WALLET');
+      // ✅ IMPORTANT: Prisma Decimal-safe compare
+      const balance = Number((wallet as any).balance ?? 0);
+      if (!Number.isFinite(balance) || balance < amount) {
+        throw new Error('Insufficient balance');
       }
 
-      if (wallet.balance < amt) {
-        throw new Error('INSUFFICIENT_BALANCE');
-      }
-
+      // ✅ Deduct stake immediately
       await tx.wallet.update({
         where: { id: wallet.id },
-        data: {
-          balance: wallet.balance - amt,
-        },
+        data: { balance: { decrement: amount } },
       });
 
-      const newTrade = await tx.trade.create({
+      // ✅ Create trade
+      const trade = await tx.trade.create({
         data: {
           userId: user.id,
           pair,
-          direction: normalizedDirection,
-          amount: amt,
-          duration: dur,
-          entryPrice,
-          exitPrice: null,
-          won: null,
+          direction,
+          amount,
+          duration,
+          entryPrice: entryPrice ?? null,
           payout: 0,
+          won: null,
         },
       });
 
-      return newTrade;
+      const freshWallet = await tx.wallet.findUnique({ where: { id: wallet.id } });
+      return { trade, wallet: freshWallet };
     });
 
-    return NextResponse.json(
-      {
-        ok: true,
-        trade,
-      },
-      { status: 200 }
-    );
-  } catch (err: any) {
-    console.error('[trade/open] error:', err);
-
-    const msg: string = typeof err?.message === 'string' ? err.message : '';
-
-    if (msg === 'NO_USDT_WALLET') {
-      return NextResponse.json(
-        { ok: false, error: 'USDT wallet not found for this user.' },
-        { status: 400 }
-      );
+    return json(true, { trade: created.trade, wallet: created.wallet });
+  } catch (e: any) {
+    const msg = String(e?.message || 'Server error');
+    if (msg.toLowerCase().includes('insufficient')) {
+      return json(false, { error: msg }, 400);
     }
-
-    if (msg === 'INSUFFICIENT_BALANCE') {
-      return NextResponse.json(
-        { ok: false, error: 'Insufficient USDT balance.' },
-        { status: 400 }
-      );
-    }
-
-    return NextResponse.json(
-      { ok: false, error: 'Server error while opening trade.' },
-      { status: 500 }
-    );
+    console.error('[api/trade/open] POST error', e);
+    return json(false, { error: msg }, 500);
   }
 }
