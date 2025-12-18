@@ -14,7 +14,8 @@ import WalletBalance from '../components/WalletBalance';
 type Direction = 'long' | 'short';
 
 function fmt(n: number, d = 2) {
-  return n.toLocaleString(undefined, {
+  const num = Number(n || 0);
+  return num.toLocaleString(undefined, {
     minimumFractionDigits: d,
     maximumFractionDigits: d,
   });
@@ -38,14 +39,13 @@ async function safeJson(res: Response) {
   try {
     return JSON.parse(txt);
   } catch {
-    throw new Error(`Non-JSON response (${res.status})`);
+    throw new Error(`Non-JSON response (${res.status}) from ${res.url}`);
   }
 }
 
 export default function TradePage() {
   const [trades, setTrades] = useLocalJson<TradeResult[]>('coinvade.trades', []);
 
-  // Wallet balance shared across UI
   const [balance, setBalance] = useState<number | null>(null);
 
   const { lang, setLang } = useLang();
@@ -76,17 +76,18 @@ export default function TradePage() {
     duration: number;
   } | null>(null);
 
-  // ✅ keep the currently-open backend tradeId so resolve can credit wallet
+  // ✅ keep server trade id for resolve
   const activeTradeIdRef = useRef<string | null>(null);
+  // optional display only
+  const entryPriceRef = useRef<number | null>(null);
 
   const estPayout = useMemo(
-    () => (isFinite(amount) && amount > 0 ? amount * 1.8 : 0),
+    () => (Number.isFinite(amount) && amount > 0 ? amount * 1.8 : 0),
     [amount]
   );
 
   const pairLabel = pair.includes('/') ? pair : `${pair.replace('USDT', '')}/USDT`;
 
-  // Load wallet balance from backend and broadcast
   async function loadWallet() {
     try {
       const res = await fetch('/api/wallet/info', { cache: 'no-store' });
@@ -98,7 +99,9 @@ export default function TradePage() {
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('coinvade.walletBalance', String(next));
           window.dispatchEvent(
-            new CustomEvent('coinvade-wallet-updated', { detail: { balance: next } })
+            new CustomEvent('coinvade-wallet-updated', {
+              detail: { balance: next },
+            })
           );
         }
       }
@@ -108,13 +111,16 @@ export default function TradePage() {
   }
 
   useEffect(() => {
+    // try local storage first
     if (typeof window !== 'undefined') {
       const stored = window.localStorage.getItem('coinvade.walletBalance');
       if (stored != null && !Number.isNaN(Number(stored))) {
         const next = Number(stored);
         setBalance(next);
         window.dispatchEvent(
-          new CustomEvent('coinvade-wallet-updated', { detail: { balance: next } })
+          new CustomEvent('coinvade-wallet-updated', {
+            detail: { balance: next },
+          })
         );
         return;
       }
@@ -123,10 +129,9 @@ export default function TradePage() {
   }, []);
 
   function handleOpenConfirm(nextDirection: Direction) {
-    if (!isFinite(amount) || amount <= 0) return;
-    if (!isFinite(duration) || duration <= 0) return;
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    if (!Number.isFinite(duration) || duration <= 0) return;
 
-    // front-end guard (backend will still validate)
     if (balance != null && amount > balance) {
       alert('Not enough balance for this trade.');
       return;
@@ -136,13 +141,12 @@ export default function TradePage() {
     setConfirmOpen(true);
   }
 
-  // ✅ This now hits backend to deduct + create trade BEFORE showing countdown
+  // ✅ OPEN TRADE (deduct + create trade) BEFORE showing countdown
   async function startConfirmedTrade() {
     if (!pendingTrade) return;
 
     try {
       const { pair, amount, direction, duration } = pendingTrade;
-
       const apiDirection = direction === 'long' ? 'LONG' : 'SHORT';
 
       const res = await fetch('/api/trade/open', {
@@ -150,11 +154,10 @@ export default function TradePage() {
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
         body: JSON.stringify({
-          pair,
+          pair: pair.replace('/', '').toUpperCase(),
           direction: apiDirection,
           amount,
           duration,
-          // entryPrice is optional; backend open route will fill it if missing
           entryPrice: null,
         }),
       });
@@ -166,17 +169,21 @@ export default function TradePage() {
         return;
       }
 
-      // store tradeId for resolve later
       activeTradeIdRef.current = String(j.trade?.id || '');
+      entryPriceRef.current =
+        j.trade?.entryPrice != null ? Number(j.trade.entryPrice) : null;
 
-      // update UI balance immediately from server wallet
+      // update UI balance immediately from server
       if (j.wallet) {
         const nextBalance = Number(j.wallet.balance ?? 0);
         setBalance(nextBalance);
+
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('coinvade.walletBalance', String(nextBalance));
           window.dispatchEvent(
-            new CustomEvent('coinvade-wallet-updated', { detail: { balance: nextBalance } })
+            new CustomEvent('coinvade-wallet-updated', {
+              detail: { balance: nextBalance },
+            })
           );
         }
       }
@@ -198,79 +205,75 @@ export default function TradePage() {
     setRun(null);
   }
 
-  // Called when CountdownTrade finishes (timer hit 0)
-  function onTradeFinish(res: {
+  // ✅ Countdown finished => resolve on backend and update wallet + history
+  async function onTradeFinish(res: {
     pair: string;
     direction: Direction;
     amount: number;
     duration: number;
-    entryPrice: number | null;
-    exitPrice: number | null;
-    won: boolean;
-    payout: number;
     ts: number;
   }) {
-    (async () => {
-      try {
-        const tradeId = activeTradeIdRef.current;
-        if (!tradeId) {
-          console.error('[trade] missing activeTradeIdRef, cannot resolve');
-          return;
-        }
-
-        const response = await fetch('/api/trade/resolve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          body: JSON.stringify({ tradeId }),
-        });
-
-        const j = await safeJson(response);
-
-        if (!response.ok || !j?.ok) {
-          console.error('[trade] backend resolve failed', j);
-          return;
-        }
-
-        const serverTrade = j.trade;
-        const serverWallet = j.wallet;
-
-        const record: TradeResult = {
-          id: serverTrade.id,
-          ts: Date.now(),
-          pair: serverTrade.pair,
-          direction: String(serverTrade.direction || '').toLowerCase() as any,
-          amount: Number(serverTrade.amount || 0),
-          duration: Number(serverTrade.duration || 0),
-          entryPrice: Number(serverTrade.entryPrice || 0),
-          exitPrice: Number(serverTrade.exitPrice || 0),
-          won: serverTrade.won,
-          payout: Number(serverTrade.payout || 0),
-        };
-
-        setTrades((prev) => [record, ...prev].slice(0, 100));
-
-        // source of truth: server wallet
-        if (serverWallet) {
-          const nextBalance = Number(serverWallet.balance ?? 0);
-          setBalance(nextBalance);
-          if (typeof window !== 'undefined') {
-            window.localStorage.setItem('coinvade.walletBalance', String(nextBalance));
-            window.dispatchEvent(
-              new CustomEvent('coinvade-wallet-updated', { detail: { balance: nextBalance } })
-            );
-          }
-        } else {
-          // fallback refresh
-          loadWallet();
-        }
-      } catch (err) {
-        console.error('[trade] onTradeFinish error', err);
-      } finally {
-        // clear active trade id
-        activeTradeIdRef.current = null;
+    try {
+      const tradeId = activeTradeIdRef.current;
+      if (!tradeId) {
+        console.error('[trade] missing tradeId, cannot resolve');
+        return;
       }
-    })();
+
+      const response = await fetch('/api/trade/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({ tradeId }),
+      });
+
+      const j = await safeJson(response);
+
+      if (!response.ok || !j?.ok) {
+        console.error('[trade] backend resolve failed', j);
+        alert(j?.error || 'Failed to resolve trade');
+        return;
+      }
+
+      const serverTrade = j.trade;
+      const serverWallet = j.wallet;
+
+      const record: TradeResult = {
+        id: String(serverTrade.id),
+        ts: Date.now(),
+        pair: String(serverTrade.pair || res.pair),
+        direction: String(serverTrade.direction || '').toLowerCase() as any,
+        amount: Number(serverTrade.amount || res.amount),
+        duration: Number(serverTrade.duration || res.duration),
+        entryPrice: Number(serverTrade.entryPrice || entryPriceRef.current || 0),
+        exitPrice: Number(serverTrade.exitPrice || 0),
+        won: serverTrade.won,
+        payout: Number(serverTrade.payout || 0),
+      };
+
+      setTrades((prev) => [record, ...prev].slice(0, 100));
+
+      if (serverWallet) {
+        const nextBalance = Number(serverWallet.balance ?? 0);
+        setBalance(nextBalance);
+
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('coinvade.walletBalance', String(nextBalance));
+          window.dispatchEvent(
+            new CustomEvent('coinvade-wallet-updated', {
+              detail: { balance: nextBalance },
+            })
+          );
+        }
+      } else {
+        loadWallet();
+      }
+    } catch (err) {
+      console.error('[trade] onTradeFinish error', err);
+    } finally {
+      activeTradeIdRef.current = null;
+      entryPriceRef.current = null;
+    }
   }
 
   return (
@@ -296,12 +299,11 @@ export default function TradePage() {
             </select>
           </div>
 
-          {/* top-right wallet */}
           <WalletBalance />
         </div>
       </div>
 
-      {/* floating mobile language selector */}
+      {/* mobile language selector */}
       <div className="fixed bottom-4 left-4 z-40 flex items-center gap-2 rounded-full border border-white/20 bg-black/70 px-3 py-2 text-xs text-white/80 shadow-lg sm:hidden">
         <span>{currentLang.flag}</span>
         <select
@@ -428,7 +430,9 @@ export default function TradePage() {
 
         <div className="mb-3 flex items-center justify-between text-xs text-white/50">
           <span>{tr('trade.accountLabel', lang)}</span>
-          <span>{balance != null ? fmt(balance, 2) : '—'} {mode}</span>
+          <span>
+            {balance != null ? fmt(balance, 2) : '—'} {mode}
+          </span>
         </div>
 
         {/* big Buy / Sell buttons */}
@@ -491,7 +495,9 @@ export default function TradePage() {
                 <div>
                   <div className="text-[11px] text-white/60">{tr('confirm.direction', lang)}</div>
                   <div className="text-sm font-semibold text-white">
-                    {pendingTrade.direction === 'long' ? tr('btn.buyLong', lang) : tr('btn.sellShort', lang)}
+                    {pendingTrade.direction === 'long'
+                      ? tr('btn.buyLong', lang)
+                      : tr('btn.sellShort', lang)}
                   </div>
                 </div>
                 <div>
@@ -554,6 +560,9 @@ export default function TradePage() {
           amount={run.amount}
           duration={run.duration}
           direction={run.direction}
+          // display-only (optional)
+          tradeId={activeTradeIdRef.current}
+          entryPrice={entryPriceRef.current}
           onFinish={onTradeFinish}
         />
       )}
