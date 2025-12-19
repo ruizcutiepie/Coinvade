@@ -9,9 +9,9 @@ generator client {
   provider = "prisma-client-js"
 }
 
-/* =======================
-   ENUMS (production safety)
-   ======================= */
+// =======================
+// ENUMS (production safety)
+// =======================
 
 enum Role {
   USER
@@ -36,9 +36,9 @@ enum WithdrawStatus {
   PAID
 }
 
-/* =======================
-   MODELS
-   ======================= */
+// =======================
+// MODELS
+// =======================
 
 model User {
   id           String   @id @default(cuid())
@@ -48,22 +48,22 @@ model User {
   role         Role     @default(USER)
   createdAt    DateTime @default(now())
 
-  wallets      Wallet[]
-  trades       Trade[]
-  deposits     DepositIntent[]
-  withdrawals  WithdrawRequest[]
+  wallets     Wallet[]
+  trades      Trade[]
+  deposits    DepositIntent[]
+  withdrawals WithdrawRequest[]
 }
 
 model Wallet {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    String
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
 
   /// Example: "BTC", "ETH", "USDT"
-  coin      String
+  coin String
 
   /// IMPORTANT: use Decimal for money
-  balance   Decimal  @default(0)
+  balance Decimal @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -72,21 +72,21 @@ model Wallet {
 }
 
 model Trade {
-  id        String         @id @default(cuid())
-  user      User           @relation(fields: [userId], references: [id])
-  userId    String
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
 
   /// Example: "BTCUSDT"
-  pair      String
+  pair String
 
   /// LONG or SHORT
   direction TradeDirection
 
   /// Stake in USDT (Decimal for money)
-  amount    Decimal
+  amount Decimal
 
   /// Contract duration in seconds
-  duration  Int
+  duration Int
 
   // Prices (Decimal for accuracy)
   entryPrice Decimal?
@@ -94,43 +94,43 @@ model Trade {
   closePrice Decimal?
 
   // Result
-  won        Boolean?
-  payout     Decimal        @default(0)
+  won    Boolean?
+  payout Decimal  @default(0)
 
-  createdAt  DateTime       @default(now())
+  createdAt  DateTime  @default(now())
   resolvedAt DateTime?
 }
 
 model DepositIntent {
-  id        String        @id @default(cuid())
-  user      User          @relation(fields: [userId], references: [id])
-  userId    String
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
 
-  coin      String
-  network   String
+  coin    String
+  network String
 
-  txHash    String?
-  amount    Decimal?
+  txHash String?
+  amount Decimal?
 
-  status    DepositStatus @default(PENDING)
+  status DepositStatus @default(PENDING)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model WithdrawRequest {
-  id        String         @id @default(cuid())
-  user      User           @relation(fields: [userId], references: [id])
-  userId    String
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
 
-  coin      String
-  network   String
-  address   String
+  coin    String
+  network String
+  address String
 
-  amount    Decimal
-  note      String?
+  amount Decimal
+  note   String?
 
-  status    WithdrawStatus @default(PENDING)
+  status WithdrawStatus @default(PENDING)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
