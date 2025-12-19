@@ -1,3 +1,4 @@
+// src/app/api/admin/deposits/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import authOptions from '@/lib/auth';
@@ -7,70 +8,68 @@ function json(ok: boolean, data: any, status = 200) {
   return NextResponse.json({ ok, ...data }, { status });
 }
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+// NOTE:
+// Your prisma/schema.prisma DepositStatus enum is:
+// PENDING | CONFIRMED | FAILED
+// Some environments don't export DepositStatus type directly from @prisma/client,
+// so we use string literals to avoid build/type mismatch.
+
+type DepositStatusStr = 'PENDING' | 'CONFIRMED' | 'FAILED';
+
+export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
   try {
     const session = (await getServerSession(authOptions as any)) as any;
-    const user = session?.user as any;
+    const actor = session?.user as any;
 
-    if (!user || user.role !== 'ADMIN') {
-      return json(false, { error: 'Unauthorized' }, 401);
-    }
+    if (!actor?.id) return json(false, { error: 'Unauthorized' }, 401);
+    if (actor.role !== 'ADMIN') return json(false, { error: 'Forbidden' }, 403);
 
-    const { id } = await params;
+    const id = String(ctx?.params?.id || '');
+    if (!id) return json(false, { error: 'Missing id' }, 400);
 
-    const body = await req.json().catch(() => ({}));
-    const action = String(body?.action || '').toUpperCase(); // APPROVE / REJECT
+    const body = await req.json().catch(() => ({} as any));
+    const action = String(body?.action || '').toLowerCase();
 
-    if (action !== 'APPROVE' && action !== 'REJECT') {
-      return json(false, { error: "Invalid action. Use 'APPROVE' or 'REJECT'." }, 400);
-    }
+    if (!action) return json(false, { error: 'Missing action' }, 400);
 
-    // NOTE: adjust model name if yours is DepositIntent (based on Prisma Studio screenshot)
-    const updated = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const dep = await tx.depositIntent.findUnique({ where: { id } });
-      if (!dep) throw new Error('Deposit not found');
+      if (!dep) {
+        const err: any = new Error('Deposit not found');
+        err.status = 404;
+        throw err;
+      }
 
-      // prevent double-processing
-      if (dep.status !== 'PENDING') return dep;
+      const currentStatus = String((dep as any).status || '') as DepositStatusStr;
 
-      if (action === 'REJECT') {
+      // Only allow transitions from PENDING
+      if (currentStatus !== 'PENDING') {
+        return dep; // idempotent-ish
+      }
+
+      if (action === 'confirm') {
         return await tx.depositIntent.update({
           where: { id },
-          data: { status: 'REJECTED' },
+          data: { status: 'CONFIRMED' as any },
         });
       }
 
-      // APPROVE: mark approved + credit wallet
-      const amount = Number(dep.amount || 0);
-      if (!amount || amount <= 0) throw new Error('Deposit amount is invalid');
-
-      const wallet = await tx.wallet.findFirst({
-        where: { userId: dep.userId, coin: dep.coin },
-      });
-
-      if (wallet) {
-        await tx.wallet.update({
-          where: { id: wallet.id },
-          data: { balance: { increment: amount } },
-        });
-      } else {
-        await tx.wallet.create({
-          data: { userId: dep.userId, coin: dep.coin, balance: amount },
+      if (action === 'fail' || action === 'reject') {
+        // "reject" maps to FAILED because enum has no REJECTED
+        return await tx.depositIntent.update({
+          where: { id },
+          data: { status: 'FAILED' as any },
         });
       }
 
-      return await tx.depositIntent.update({
-        where: { id },
-        data: { status: 'APPROVED' },
-      });
+      return dep;
     });
 
-    return json(true, { deposit: updated });
-  } catch (e: any) {
-    console.error('[api/admin/deposits/[id]] POST error', e);
-    return json(false, { error: e?.message || 'Server error' }, 500);
+    return json(true, { deposit: result }, 200);
+  } catch (error: any) {
+    const status = error?.status || 500;
+    const message = error instanceof Error ? error.message : 'Server error';
+    console.error('[api/admin/deposits/[id]] error:', error);
+    return json(false, { error: message }, status);
   }
 }
