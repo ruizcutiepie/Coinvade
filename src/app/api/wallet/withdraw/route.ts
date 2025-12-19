@@ -1,107 +1,97 @@
 // src/app/api/wallet/withdraw/route.ts
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import authOptions from '@/lib/auth';
+import prisma from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 
-const DEMO_EMAIL = 'demo@coinvade.local';
-const COIN = 'USDT';
-
-async function getOrCreateDemoUserAndWallet() {
-  let user = await prisma.user.findUnique({
-    where: { email: DEMO_EMAIL },
-  });
-
-  if (!user) {
-    user = await prisma.user.create({
-      data: { email: DEMO_EMAIL },
-    });
-  }
-
-  let wallet = await prisma.wallet.findFirst({
-    where: { userId: user.id, coin: COIN },
-  });
-
-  if (!wallet) {
-    wallet = await prisma.wallet.create({
-      data: {
-        userId: user.id,
-        coin: COIN,
-        balance: 0,
-      },
-    });
-  }
-
-  return { user, wallet };
+function json(ok: boolean, data: any, status = 200) {
+  return NextResponse.json({ ok, ...data }, { status });
 }
 
-// POST /api/wallet/withdraw
-export async function POST(req: Request) {
+// Decimal-safe conversion
+function toNumber(v: any): number {
+  if (v == null) return 0;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (typeof v === 'object' && typeof v.toNumber === 'function') return v.toNumber();
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toDecimal(n: number) {
+  return new Prisma.Decimal(Number.isFinite(n) ? n : 0);
+}
+
+export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => null) as { amount?: number; address?: string; note?: string } | null;
+    const session = (await getServerSession(authOptions as any)) as any;
+    const actor = session?.user as any;
+    if (!actor?.id) return json(false, { error: 'Unauthorized' }, 401);
 
-    if (!body || typeof body.amount !== 'number') {
-      return NextResponse.json(
-        { ok: false, error: 'Amount is required and must be a number' },
-        { status: 400 },
-      );
+    const body = await req.json().catch(() => ({} as any));
+
+    const coin = String(body?.coin || 'USDT').toUpperCase();
+    const network = String(body?.network || '').trim();
+    const address = String(body?.address || '').trim();
+    const amount = Number(body?.amount || 0);
+    const note = body?.note != null ? String(body.note) : null;
+
+    if (!coin) return json(false, { error: 'Missing coin' }, 400);
+    if (!network) return json(false, { error: 'Missing network' }, 400);
+    if (!address) return json(false, { error: 'Missing address' }, 400);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return json(false, { error: 'Invalid amount' }, 400);
     }
 
-    const amount = body.amount;
+    const result = await prisma.$transaction(async (tx) => {
+      // ensure wallet exists
+      const wallet = await tx.wallet.upsert({
+        where: { userId_coin: { userId: actor.id, coin } },
+        update: {},
+        create: { userId: actor.id, coin, balance: toDecimal(0) as any },
+      });
 
-    if (amount <= 0) {
-      return NextResponse.json(
-        { ok: false, error: 'Amount must be greater than 0' },
-        { status: 400 },
-      );
-    }
+      const bal = toNumber(wallet.balance);
 
-    const { user, wallet } = await getOrCreateDemoUserAndWallet();
+      // ✅ FIX: compare number-to-number
+      if (bal < amount) {
+        const err: any = new Error('Insufficient balance');
+        err.status = 400;
+        throw err;
+      }
 
-    if (wallet.balance < amount) {
-      return NextResponse.json(
-        { ok: false, error: 'Insufficient balance' },
-        { status: 400 },
-      );
-    }
-
-    const payoutAddress = body.address ?? 'INTERNAL_ADDRESS';
-    const note = body.note ?? null;
-
-    // 2) Transaction: create withdraw request + decrement wallet balance
-    const [withdraw, updatedWallet] = await prisma.$transaction([
-      prisma.withdrawRequest.create({
+      // create withdrawal request
+      const withdrawal = await tx.withdrawRequest.create({
         data: {
-          userId: user.id,
-          coin: COIN,
-          network: 'INTERNAL', // later you can change this
-          address: payoutAddress,
-          amount,
-          note,
-          status: 'PAID', // for now behave like instant payout
-        },
-      }),
-      prisma.wallet.update({
+          userId: actor.id,
+          coin,
+          network,
+          address,
+          amount: toDecimal(amount) as any,
+          note: note || undefined,
+          // ✅ DO NOT import enum type — keep this stable
+          status: 'PENDING' as any,
+        } as any,
+      });
+
+      // deduct wallet (reserve funds)
+      const updatedWallet = await tx.wallet.update({
         where: { id: wallet.id },
-        data: {
-          balance: { decrement: amount },
-        },
-      }),
-    ]);
+        data: { balance: { decrement: toDecimal(amount) as any } },
+      });
 
-    return NextResponse.json(
-      {
-        ok: true,
-        wallet: updatedWallet,
-        withdraw,
-      },
-      { status: 200 },
-    );
-  } catch (err) {
-    console.error('[wallet/withdraw] error:', err);
-    const message = err instanceof Error ? err.message : String(err);
+      return { withdrawal, wallet: updatedWallet };
+    });
 
-    return NextResponse.json(
-      { ok: false, error: message },
-      { status: 500 },
-    );
+    return json(true, { withdrawal: result.withdrawal, wallet: result.wallet }, 200);
+  } catch (e: any) {
+    const status = e?.status || 500;
+    const msg = String(e?.message || 'Server error');
+    console.error('[api/wallet/withdraw] POST error', e);
+    return json(false, { error: msg }, status);
   }
 }
