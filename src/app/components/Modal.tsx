@@ -15,24 +15,27 @@ export default function Modal({ open, onClose, title, children, className }: Mod
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-40">
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
       {/* backdrop */}
       <div
-        className="modal-overlay"
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden="true"
       />
+
       {/* card */}
       <div
-        className={`modal-card relative mx-auto w-[92%] max-w-2xl rounded-2xl bg-[var(--surface)] p-6 sm:p-7 ${className || ''}`}
+        className={`relative w-full max-w-2xl rounded-2xl border border-white/10 bg-[var(--surface)] p-6 shadow-[0_0_40px_rgba(0,0,0,.65)] ${className || ''}`}
         role="dialog"
         aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* close */}
         <button
           aria-label="Close"
-          className="close-x"
+          className="absolute right-4 top-4 rounded-full border border-white/15 bg-black/40 px-3 py-1.5 text-sm text-white/80 hover:border-white/40"
           onClick={onClose}
+          type="button"
         >
           ✕
         </button>

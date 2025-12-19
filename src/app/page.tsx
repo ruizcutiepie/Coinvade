@@ -216,7 +216,7 @@ function HeroKlinePanel({ lang }: { lang: LangCode }) {
         </div>
 
         {/* INTERVAL BUTTONS */}
-        <div className="mb-3 flex gap-2 text-xs">
+        <div className="mb-3 flex gap-2 text-xs flex-wrap">
           <span className="text-white/60">{labelHeroTime}</span>
           {HERO_INTERVALS.map((i) => (
             <button
@@ -369,11 +369,11 @@ export default function Home() {
   return (
     <main className="min-h-screen px-6 pb-16 pt-6 text-white">
       {/* TOP BAR */}
-      <div className="mb-8 flex justify-between items-center">
+      <div className="mb-8 flex items-center justify-between gap-3">
         <div className="text-lg tracking-wide text-[var(--neon)]">COINVADE</div>
 
         <div className="flex items-center gap-3">
-          {/* DESKTOP LANGUAGE SELECTOR (HOMEPAGE ONLY) */}
+          {/* LANGUAGE SELECTOR (HOMEPAGE ONLY, NOT FLOATING) */}
           <div className="hidden sm:flex items-center gap-2 rounded-2xl border border-white/15 bg-black/40 px-3 py-2 text-xs text-white/70">
             <span className="text-lg">{currentLang.flag}</span>
             <select

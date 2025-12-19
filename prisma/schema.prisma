@@ -9,17 +9,43 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// =======================
-// MODELS
-// =======================
+/* =======================
+   ENUMS (production safety)
+   ======================= */
 
-// Basic user (auth + relations)
+enum Role {
+  USER
+  ADMIN
+}
+
+enum TradeDirection {
+  LONG
+  SHORT
+}
+
+enum DepositStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+enum WithdrawStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+/* =======================
+   MODELS
+   ======================= */
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
   name         String?
   passwordHash String?
-  role         String   @default("USER")
+  role         Role     @default(USER)
   createdAt    DateTime @default(now())
 
   wallets      Wallet[]
@@ -28,7 +54,6 @@ model User {
   withdrawals  WithdrawRequest[]
 }
 
-// One wallet per user per coin symbol (BTC, ETH, USDT, etc)
 model Wallet {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id])
@@ -36,90 +61,76 @@ model Wallet {
 
   /// Example: "BTC", "ETH", "USDT"
   coin      String
-  balance   Float    @default(0)
+
+  /// IMPORTANT: use Decimal for money
+  balance   Decimal  @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([userId, coin]) // each user+coin only once
+  @@unique([userId, coin])
 }
 
-// Trade history (for the Trade page)
 model Trade {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id])
+  id        String         @id @default(cuid())
+  user      User           @relation(fields: [userId], references: [id])
   userId    String
 
   /// Example: "BTCUSDT"
   pair      String
 
-  /// "LONG" or "SHORT" (we'll store uppercase in code)
-  direction String
+  /// LONG or SHORT
+  direction TradeDirection
 
-  /// Stake in USDT
-  amount    Float
+  /// Stake in USDT (Decimal for money)
+  amount    Decimal
 
   /// Contract duration in seconds
   duration  Int
 
-  // Prices
-  entryPrice Float?
-  exitPrice  Float?
-  closePrice Float?      // final price used to settle
+  // Prices (Decimal for accuracy)
+  entryPrice Decimal?
+  exitPrice  Decimal?
+  closePrice Decimal?
 
   // Result
-  won        Boolean?    // true = win, false = loss, null = not decided
-  payout     Float   @default(0)
+  won        Boolean?
+  payout     Decimal        @default(0)
 
-  createdAt  DateTime @default(now())
+  createdAt  DateTime       @default(now())
   resolvedAt DateTime?
 }
 
-// Deposit intents (client sends money to your fixed addresses)
 model DepositIntent {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id])
+  id        String        @id @default(cuid())
+  user      User          @relation(fields: [userId], references: [id])
   userId    String
 
-  /// "BTC", "ETH", "USDT", etc
   coin      String
-
-  /// Example: "Bitcoin mainnet", "TRON (TRC20)"
   network   String
 
-  /// Optional blockchain tx hash once you see it on-chain
   txHash    String?
+  amount    Decimal?
 
-  /// Optional: amount you confirm on-chain
-  amount    Float?
-
-  /// "PENDING" | "CONFIRMED" | "FAILED"
-  status    String   @default("PENDING")
+  status    DepositStatus @default(PENDING)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-// Withdraw requests (user gives payout address)
 model WithdrawRequest {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id])
+  id        String         @id @default(cuid())
+  user      User           @relation(fields: [userId], references: [id])
   userId    String
 
-  /// "BTC", "ETH", "USDT", etc
   coin      String
-
-  /// Example: "Bitcoin mainnet", "TRON (TRC20)"
   network   String
-
-  /// User’s payout address
   address   String
 
-  amount    Float
+  amount    Decimal
   note      String?
 
-  /// "PENDING" | "APPROVED" | "REJECTED" | "PAID"
-  status    String   @default("PENDING")
+  status    WithdrawStatus @default(PENDING)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

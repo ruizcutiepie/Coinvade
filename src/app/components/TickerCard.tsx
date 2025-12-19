@@ -10,7 +10,7 @@ type Props = {
 type PriceResponse = { price: number; percent?: number } | { error: string };
 
 const CARD_POLL_MS = 5000; // poll every 5s
-const HISTORY_LEN = 40;    // how many points to keep for sparkline
+const HISTORY_LEN = 40; // how many points to keep for sparkline
 
 export default function TickerCard({ symbol }: Props) {
   const [price, setPrice] = useState<number | null>(null);
@@ -18,11 +18,14 @@ export default function TickerCard({ symbol }: Props) {
   const [history, setHistory] = useState<number[]>([]);
   const timerRef = useRef<number | null>(null);
 
+  // "BTCUSDT" -> base "BTC"
+  const base = useMemo(() => symbol.replace("USDT", ""), [symbol]);
+
   // "BTCUSDT" -> "BTC/USDT"
-  const label = useMemo(() => {
-    const base = symbol.replace("USDT", "");
-    return `${base}/USDT`;
-  }, [symbol]);
+  const label = useMemo(() => `${base}/USDT`, [base]);
+
+  // icon path
+  const iconSrc = useMemo(() => `/icons/${base.toLowerCase()}.svg`, [base]);
 
   // fetch once and then every 5s
   useEffect(() => {
@@ -62,7 +65,7 @@ export default function TickerCard({ symbol }: Props) {
   // compute sparkline path
   const { path, fillPath, up } = useMemo(() => {
     const w = 220; // SVG width
-    const h = 60;  // SVG height
+    const h = 60; // SVG height
     const pad = 2;
 
     if (history.length < 2) {
@@ -97,25 +100,40 @@ export default function TickerCard({ symbol }: Props) {
   }, [history]);
 
   const priceText =
-    price == null ? "…" : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(price);
+    price == null
+      ? "…"
+      : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(price);
 
   const percentText =
-    percent == null
-      ? ""
-      : `${percent >= 0 ? "+" : ""}${percent.toFixed(2)}%`;
+    percent == null ? "" : `${percent >= 0 ? "+" : ""}${percent.toFixed(2)}%`;
 
   return (
     <div className="rounded-2xl border border-white/10 p-6 bg-[var(--surface)] shadow-lg neon-ring">
       {/* header row */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-white">{label}</h3>
+        <div className="flex items-center gap-3">
+          {/* ✅ coin icon with fallback */}
+          <img
+            src={iconSrc}
+            alt={base}
+            className="h-9 w-9 rounded-full border border-white/10 bg-black/40 object-contain p-1"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).src = "/icons/coin.svg";
+            }}
+          />
+          <div className="leading-tight">
+            <h3 className="text-lg font-semibold text-white">{label}</h3>
+            <div className="text-[11px] text-white/50">{symbol}</div>
+          </div>
+        </div>
+
         <button className="text-white/50 hover:text-white transition">⋯</button>
       </div>
 
       {/* price + sparkline */}
       <div className="flex items-center gap-6">
         <div className="min-w-[140px]">
-          <div className="text-3xl font-semibold">{priceText}</div>
+          <div className="text-3xl font-semibold text-white">{priceText}</div>
           <div
             className={`mt-1 text-sm font-medium ${
               (percent ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"

@@ -1,3 +1,4 @@
+// src/app/api/trade/resolve/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import authOptions from '@/lib/auth';
@@ -6,6 +7,11 @@ import { getPrice } from '@/lib/binance';
 
 function json(ok: boolean, data: any, status = 200) {
   return NextResponse.json({ ok, ...data }, { status });
+}
+
+function toNumber(v: any): number {
+  const n = Number(v ?? 0);
+  return Number.isFinite(n) ? n : 0;
 }
 
 export async function POST(req: NextRequest) {
@@ -20,7 +26,11 @@ export async function POST(req: NextRequest) {
 
     const result = await prisma.$transaction(async (tx) => {
       const trade = await tx.trade.findUnique({ where: { id: tradeId } });
-      if (!trade) throw new Error('Trade not found');
+      if (!trade) {
+        const err: any = new Error('Trade not found');
+        err.status = 404;
+        throw err;
+      }
 
       // only owner or admin can resolve
       if (trade.userId !== actor.id && actor.role !== 'ADMIN') {
@@ -29,15 +39,28 @@ export async function POST(req: NextRequest) {
         throw err;
       }
 
-      // ✅ idempotent: if already resolved, do NOT credit again
+      // ✅ idempotent: if already resolved, DO NOT credit again
       if (trade.exitPrice != null) {
         const wallet = await tx.wallet.findUnique({
           where: { userId_coin: { userId: trade.userId, coin: 'USDT' } },
         });
-        return { trade, wallet };
+
+        const stake = toNumber(trade.amount);
+        let delta = 0;
+        if (trade.won === true) delta = stake * 0.8;
+        else if (trade.won === false) delta = -stake;
+        else delta = 0;
+
+        const exitPrice = toNumber(trade.exitPrice ?? trade.closePrice ?? 0);
+
+        return {
+          trade,
+          wallet,
+          settlement: { won: trade.won, delta, exitPrice },
+        };
       }
 
-      const symbol = trade.pair;
+      const symbol = String(trade.pair || '');
       if (!symbol) throw new Error('Trade has no pair set');
 
       const currentPrice = Number(await getPrice(symbol));
@@ -45,7 +68,7 @@ export async function POST(req: NextRequest) {
         throw new Error('Invalid current price from price feed');
       }
 
-      const entry = Number(trade.entryPrice ?? 0);
+      const entry = toNumber(trade.entryPrice);
       if (!Number.isFinite(entry) || entry <= 0) {
         throw new Error('Missing entryPrice on trade');
       }
@@ -55,7 +78,7 @@ export async function POST(req: NextRequest) {
       const isShort = direction === 'SHORT';
       if (!isLong && !isShort) throw new Error('Invalid direction on trade');
 
-      const stake = Number(trade.amount) || 0;
+      const stake = toNumber(trade.amount);
 
       let wonFlag: boolean | null = null;
       if (currentPrice > entry) wonFlag = isLong ? true : false;
@@ -93,10 +116,20 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      return { trade: updatedTrade, wallet };
+      // Settlement for UI (net change)
+      let delta = 0;
+      if (wonFlag === true) delta = stake * 0.8;
+      else if (wonFlag === false) delta = -stake;
+      else delta = 0;
+
+      return {
+        trade: updatedTrade,
+        wallet,
+        settlement: { won: wonFlag, delta, exitPrice: currentPrice },
+      };
     });
 
-    return json(true, { trade: result.trade, wallet: result.wallet }, 200);
+    return json(true, { trade: result.trade, wallet: result.wallet, settlement: result.settlement }, 200);
   } catch (error: any) {
     const status = error?.status || 500;
     const message = error instanceof Error ? error.message : 'Server error';

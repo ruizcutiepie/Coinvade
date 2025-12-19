@@ -4,13 +4,13 @@
 export type TradeResult = {
   id: string;
   ts: number;
-  pair: string;           // "BTCUSDT"
+  pair: string; // "BTCUSDT"
   direction: 'long' | 'short';
-  amount: number;         // USDT
-  duration: number;       // seconds
+  amount: number; // USDT
+  duration: number; // seconds
   entryPrice: number;
   exitPrice: number;
-  won: boolean;
+  won: boolean | null; // true = win, false = loss, null = tie
   payout: number;
 };
 
@@ -25,7 +25,10 @@ export default function RecentTrades({ items }: { items: TradeResult[] }) {
 
   return (
     <div className="mt-10 rounded-2xl border border-white/10 bg-black/20 p-2 sm:p-4">
-      <h2 className="px-2 py-3 text-lg font-semibold text-white">Recent Trades</h2>
+      <h2 className="px-2 py-3 text-lg font-semibold text-white">
+        Recent Trades
+      </h2>
+
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] table-fixed border-collapse text-sm">
           <thead className="text-white/60">
@@ -40,30 +43,80 @@ export default function RecentTrades({ items }: { items: TradeResult[] }) {
               <th className="px-3 py-2 text-center">Result</th>
             </tr>
           </thead>
+
           <tbody>
             {items
               .slice(0, 20)
               .sort((a, b) => b.ts - a.ts)
-              .map((t) => (
-                <tr key={t.id} className="border-b border-white/10 last:border-b-0">
-                  <td className="px-3 py-2 text-white/80">
-                    {new Date(t.ts).toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2">{t.pair.includes('/') ? t.pair : `${t.pair.replace('USDT', '')}/USDT`}</td>
-                  <td className="px-3 py-2">{t.direction === 'long' ? 'Buy' : 'Sell'}</td>
-                  <td className="px-3 py-2 text-right">{t.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-                  <td className="px-3 py-2 text-right">{t.entryPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                  <td className="px-3 py-2 text-right">{t.exitPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                  <td className="px-3 py-2 text-right">
-                    {t.payout.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <span className={`rounded px-2 py-0.5 text-xs ${t.won ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
-                      {t.won ? 'Win' : 'Loss'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              .map((t) => {
+                const label =
+                  t.won === true
+                    ? 'Win'
+                    : t.won === false
+                    ? 'Loss'
+                    : 'Tie';
+
+                const badgeClass =
+                  t.won === true
+                    ? 'bg-emerald-500/15 text-emerald-300'
+                    : t.won === false
+                    ? 'bg-rose-500/15 text-rose-300'
+                    : 'bg-white/10 text-white/80';
+
+                return (
+                  <tr
+                    key={t.id}
+                    className="border-b border-white/10 last:border-b-0"
+                  >
+                    <td className="px-3 py-2 text-white/80">
+                      {new Date(t.ts).toLocaleString()}
+                    </td>
+
+                    <td className="px-3 py-2">
+                      {t.pair.includes('/')
+                        ? t.pair
+                        : `${t.pair.replace('USDT', '')}/USDT`}
+                    </td>
+
+                    <td className="px-3 py-2">
+                      {t.direction === 'long' ? 'Buy' : 'Sell'}
+                    </td>
+
+                    <td className="px-3 py-2 text-right">
+                      {t.amount.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+
+                    <td className="px-3 py-2 text-right">
+                      {(t.entryPrice ?? 0).toLocaleString(undefined, {
+                        maximumFractionDigits: 4,
+                      })}
+                    </td>
+
+                    <td className="px-3 py-2 text-right">
+                      {(t.exitPrice ?? 0).toLocaleString(undefined, {
+                        maximumFractionDigits: 4,
+                      })}
+                    </td>
+
+                    <td className="px-3 py-2 text-right">
+                      {t.payout.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      USDT
+                    </td>
+
+                    <td className="px-3 py-2 text-center">
+                      <span
+                        className={`rounded px-2 py-0.5 text-xs ${badgeClass}`}
+                      >
+                        {label}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
           </tbody>
         </table>
       </div>

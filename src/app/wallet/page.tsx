@@ -2,7 +2,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+
+import AppShell from '../components/AppShell';
 
 import useLocalNumber from '../components/useLocalNumber';
 import useLocalJson from '../components/useLocalJson';
@@ -17,7 +18,8 @@ type Coin =
   | 'BNB'
   | 'DOGE'
   | 'DOT'
-  | 'USDT';
+  | 'USDT'
+  | 'USDC';
 
 type WalletState = {
   BTC: number;
@@ -28,6 +30,7 @@ type WalletState = {
   BNB: number;
   DOGE: number;
   DOT: number;
+  USDC?: number;
 };
 
 type PriceMap = Record<Coin, number>;
@@ -50,6 +53,7 @@ const SUPPORTED_COINS: Coin[] = [
   'DOGE',
   'DOT',
   'USDT',
+  // NOTE: USDC is for Deposit UI right now; not included in holdings table by default
 ];
 
 /* -------------------- DEPOSIT CONFIG -------------------- */
@@ -57,7 +61,7 @@ const SUPPORTED_COINS: Coin[] = [
 type DepositOption = {
   id: string;
   label: string;
-  coin: 'BTC' | 'ETH' | 'USDT';
+  coin: 'BTC' | 'ETH' | 'USDT' | 'USDC';
   networkLabel: string;
   address: string;
   qr: string; // path in /public
@@ -91,6 +95,16 @@ const DEPOSIT_OPTIONS: DepositOption[] = [
     address: 'TB9Jxca4JG1JqWp4bUJo9LumXFTFC3cLtX',
     qr: '/deposit/usdttrc20.jpeg',
     description: 'Send only USDT on TRC20 (TRON) to this address.',
+  },
+  // ✅ USDC deposit option (replace with your real values)
+  {
+    id: 'USDC-ERC20',
+    label: 'USDC-ERC20',
+    coin: 'USDC',
+    networkLabel: 'Ethereum (ERC20)',
+    address: '0x0000000000000000000000000000000000000000',
+    qr: '/deposit/usdcerc20.jpeg',
+    description: 'Send only USDC via Ethereum ERC20 network.',
   },
 ];
 
@@ -164,9 +178,9 @@ export default function WalletPage() {
     BNB: 0,
     DOGE: 0,
     DOT: 0,
+    USDC: 0,
   });
 
-  // ✅ keep language for translating labels, but DO NOT show selector here
   const { lang } = useLang();
 
   // Live prices (in USDT)
@@ -180,6 +194,7 @@ export default function WalletPage() {
     DOGE: 0,
     DOT: 0,
     USDT: 1,
+    USDC: 1,
   });
   const [priceLoading, setPriceLoading] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
@@ -197,6 +212,9 @@ export default function WalletPage() {
   const [selectedDepositId, setSelectedDepositId] = useState<string>(
     DEPOSIT_OPTIONS[0]?.id
   );
+
+  // ✅ Receipt upload UI (demo-only)
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
 
   // Withdraw form
   const [withdrawChannelId, setWithdrawChannelId] = useState<string>(
@@ -222,13 +240,12 @@ export default function WalletPage() {
         }
 
         const j = await res.json();
-
         const next = Number(j?.balance ?? 0);
+
         if (!cancelled) {
           const safe = Number.isFinite(next) ? next : 0;
           setBalance(safe);
 
-          // Also update the header component if it listens for this event
           if (typeof window !== 'undefined') {
             window.dispatchEvent(
               new CustomEvent('coinvade-wallet-updated', {
@@ -280,7 +297,7 @@ export default function WalletPage() {
       );
 
       setPrices((prev) => {
-        const next: PriceMap = { ...prev, USDT: 1 };
+        const next: PriceMap = { ...prev, USDT: 1, USDC: 1 };
         for (const r of results) next[r.coin] = r.price;
         return next;
       });
@@ -302,7 +319,7 @@ export default function WalletPage() {
 
   function getCoinBalance(coin: Coin): number {
     if (coin === 'USDT') return balance;
-    return wallet[coin] ?? 0;
+    return (wallet as any)[coin] ?? 0;
   }
 
   function setCoinBalance(coin: Coin, value: number) {
@@ -469,26 +486,16 @@ export default function WalletPage() {
   /* -------------------- UI -------------------- */
 
   return (
-    <main className="min-h-screen px-6 pb-16 pt-6 text-white">
-      {/* top bar */}
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <div className="text-lg tracking-wide text-[var(--neon)]">COINVADE</div>
-
-        <div className="flex items-center gap-3">
-          {/* USDT balance summary */}
+    <AppShell title="Wallet">
+      {/* ✅ Balance summary only on Overview tab */}
+      {tab === 'overview' && (
+        <div className="mb-5 flex justify-end">
           <div className="rounded-2xl border border-white/15 bg-black/30 px-4 py-2 text-sm">
             <div className="text-white/60">{tr('balance', lang)}</div>
             <div className="font-semibold">{fmt(balance)} USDT</div>
           </div>
         </div>
-      </div>
-
-      {/* nav */}
-      <div className="mb-4 flex items-center justify-center gap-6 text-sm text-white/80">
-        <Nav to="/" label={tr('nav.markets', lang)} />
-        <Nav to="/trade" label={tr('nav.trade', lang)} />
-        <Nav to="/wallet" label={tr('nav.wallet', lang)} />
-      </div>
+      )}
 
       {/* internal tabs */}
       <div className="mb-6 flex justify-center gap-3 text-xs">
@@ -502,11 +509,7 @@ export default function WalletPage() {
                 : 'border border-white/15 bg-black/40 text-white/70 hover:border-white/40'
             }`}
           >
-            {t === 'overview'
-              ? 'Overview & Convert'
-              : t === 'deposit'
-              ? 'Deposit'
-              : 'Withdraw'}
+            {t === 'overview' ? 'Overview & Convert' : t === 'deposit' ? 'Deposit' : 'Withdraw'}
           </button>
         ))}
       </div>
@@ -520,17 +523,11 @@ export default function WalletPage() {
 
             <div className="mb-3 text-sm text-white/60">
               Estimated total value:{' '}
-              <span className="font-semibold text-cyan-300">
-                {fmt(totalValueUSDT)} USDT
-              </span>
+              <span className="font-semibold text-cyan-300">{fmt(totalValueUSDT)} USDT</span>
             </div>
 
-            {priceLoading && (
-              <div className="mb-3 text-xs text-white/50">Loading prices…</div>
-            )}
-            {priceError && (
-              <div className="mb-3 text-xs text-rose-300">{priceError}</div>
-            )}
+            {priceLoading && <div className="mb-3 text-xs text-white/50">Loading prices…</div>}
+            {priceError && <div className="mb-3 text-xs text-rose-300">{priceError}</div>}
 
             <div className="mt-2 overflow-hidden rounded-xl border border-white/10 bg-black/60">
               <table className="w-full text-sm">
@@ -593,7 +590,7 @@ export default function WalletPage() {
                     value={fromCoin}
                     onChange={(e) => setFromCoin(e.target.value as Coin)}
                   >
-                    {SUPPORTED_COINS.map((c) => (
+                    {[...SUPPORTED_COINS, 'USDC' as Coin].map((c) => (
                       <option key={c} value={c}>
                         {c}
                       </option>
@@ -612,8 +609,7 @@ export default function WalletPage() {
                 <div className="mt-1 text-[11px] text-white/50">
                   Available:{' '}
                   <span className="text-white/80">
-                    {fmt(getCoinBalance(fromCoin), fromCoin === 'USDT' ? 2 : 6)}{' '}
-                    {fromCoin}
+                    {fmt(getCoinBalance(fromCoin), fromCoin === 'USDT' ? 2 : 6)} {fromCoin}
                   </span>
                 </div>
               </div>
@@ -626,7 +622,7 @@ export default function WalletPage() {
                   value={toCoin}
                   onChange={(e) => setToCoin(e.target.value as Coin)}
                 >
-                  {SUPPORTED_COINS.map((c) => (
+                  {[...SUPPORTED_COINS, 'USDC' as Coin].map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
@@ -639,8 +635,7 @@ export default function WalletPage() {
                 <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3 text-xs text-cyan-100">
                   1 {fromCoin} ≈{' '}
                   <span className="font-semibold">
-                    {((prices[fromCoin] || 0) / (prices[toCoin] || 1)).toFixed(6)}{' '}
-                    {toCoin}
+                    {((prices[fromCoin] || 0) / (prices[toCoin] || 1)).toFixed(6)} {toCoin}
                   </span>
                 </div>
               )}
@@ -662,8 +657,7 @@ export default function WalletPage() {
           <div className="rounded-2xl border border-white/10 bg-black/40 p-5 shadow-[0_0_40px_rgba(0,0,0,.6)]">
             <h2 className="mb-2 text-lg font-semibold">Deposit coins</h2>
             <p className="mb-4 text-xs text-white/60">
-              Please select the recharge channel below. The wallet address may be updated from time to time.
-              Always double-check the network before transferring funds.
+              Please select the recharge channel below. Always double-check the network before transferring funds.
             </p>
 
             <div className="mb-4 overflow-hidden rounded-xl border border-white/10 bg-black/60">
@@ -681,8 +675,8 @@ export default function WalletPage() {
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                    <span>{opt.label}</span>
+                    <CoinIcon coin={opt.coin as any} />
+                    <span className="font-medium">{opt.label}</span>
                   </span>
                   <span className="text-white/40">{'>'}</span>
                 </button>
@@ -692,13 +686,17 @@ export default function WalletPage() {
             {(() => {
               const opt =
                 DEPOSIT_OPTIONS.find((d) => d.id === selectedDepositId) ?? DEPOSIT_OPTIONS[0];
+
               return (
-                <div className="space-y-3 text-xs">
+                <div className="space-y-4 text-xs">
                   <div className="flex flex-col items-center">
                     <img
                       src={opt.qr}
                       alt={`${opt.label} deposit QR`}
                       className="mb-2 h-48 w-48 rounded-2xl border border-white/15 bg-white object-contain p-2"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
                     />
                     <div className="text-[11px] text-white/60">
                       Network: <span className="text-white/90">{opt.networkLabel}</span>
@@ -726,9 +724,40 @@ export default function WalletPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-[11px] text-amber-100">
-                    {opt.description} Sending any other asset or using a different network may result in permanent loss of funds.
+                  {/* ✅ Receipt upload (UI realism) */}
+                  <div className="rounded-xl border border-white/10 bg-black/50 p-3">
+                    <div className="mb-2 text-[11px] text-white/60">
+                      Upload payment receipt (optional)
+                    </div>
+                    <label className="block cursor-pointer rounded-xl border border-white/15 bg-black/60 px-3 py-2 text-[11px] text-white/80 hover:border-white/40">
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0] ?? null;
+                          setReceiptFile(f);
+                        }}
+                      />
+                      Choose file
+                    </label>
+                    <div className="mt-2 text-[11px] text-white/50">
+                      {receiptFile ? `Selected: ${receiptFile.name}` : 'No file selected.'}
+                    </div>
                   </div>
+
+                  <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-[11px] text-amber-100">
+                    {opt.description} Sending any other asset or using a different network may result in permanent loss
+                    of funds.
+                  </div>
+
+                  <button
+                    type="button"
+                    className="w-full rounded-xl bg-cyan-500/90 py-3 text-xs font-semibold text-black shadow-[0_0_20px_rgba(34,211,238,.6)] hover:bg-cyan-400"
+                    onClick={() => alert('Deposit submitted for review (demo UI).')}
+                  >
+                    Submit Deposit
+                  </button>
                 </div>
               );
             })()}
@@ -773,6 +802,7 @@ export default function WalletPage() {
                   </option>
                 ))}
               </select>
+
               {(() => {
                 const ch = WITHDRAW_CHANNELS.find((c) => c.id === withdrawChannelId)!;
                 const bal = getCoinBalance(ch.coin as Coin);
@@ -837,18 +867,6 @@ export default function WalletPage() {
           </form>
         </section>
       )}
-    </main>
+    </AppShell>
   );
-}
-
-/* -------------------- NAV COMPONENT -------------------- */
-
-function Nav({ to, label }: { to: string; label: string }) {
-  const inner = (
-    <span className="inline-block rounded-xl border border-white/10 px-3 py-1 text-white/80 hover:text-white">
-      {label}
-    </span>
-  );
-
-  return to.startsWith('/') ? <Link href={to}>{inner}</Link> : <a href={to}>{inner}</a>;
 }
