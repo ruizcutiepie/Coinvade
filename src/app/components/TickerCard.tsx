@@ -1,177 +1,186 @@
+// src/app/components/TickerCard.tsx
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CoinIcon from './CoinIcon';
 
-type Interval = '1m' | '5m' | '30m' | '1h';
+type Interval = '1m' | '5m' | '30m' | '1h' | '1d' | '1w';
 type LinePoint = { time: number; value: number };
 
+export type TickerCardProps = {
+  symbol: string;        // e.g. "BTCUSDT"
+  pair?: string;         // optional now
+  coin?: string;         // optional now
+  label?: string;
+  interval?: Interval;
+};
+
 function fmt(n: number, d = 2) {
-  if (!Number.isFinite(n)) return '—';
-  return n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+  return n.toLocaleString(undefined, {
+    minimumFractionDigits: d,
+    maximumFractionDigits: d,
+  });
 }
 
-async function fetchLine(symbol: string, interval: Interval, limit = 80): Promise<LinePoint[]> {
-  const urls = [
-    `/api/kline?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${limit}`,
-    `/api/price/kline?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${limit}`,
-    `/api/price/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${limit}`,
-  ];
+function deriveFromSymbol(symbol: string) {
+  const s = String(symbol || '').toUpperCase().trim();
 
-  for (const url of urls) {
-    try {
-      const r = await fetch(url, { cache: 'no-store' });
-      if (!r.ok) continue;
-      const data = await r.json();
-      const raw = (data?.candles ?? data?.data ?? data) as any;
+  // Common quote assets
+  const QUOTES = ['USDT', 'USD', 'BUSD', 'USDC', 'BTC', 'ETH'];
 
-      if (Array.isArray(raw) && raw.length) {
-        if (Array.isArray(raw[0])) {
-          const out = raw
-            .map((row: any[]) => {
-              const tMs = Number(row[0]);
-              const close = Number(row[4]);
-              if (!Number.isFinite(tMs) || !Number.isFinite(close)) return null;
-              return { time: Math.floor(tMs / 1000), value: close };
-            })
-            .filter(Boolean) as LinePoint[];
-          if (out.length) return out;
-        }
-
-        if (typeof raw[0] === 'object') {
-          const out = raw
-            .map((c: any) => {
-              const time = Number(c.time ?? c.t ?? c.timestamp);
-              const close = Number(c.close ?? c.c);
-              const t = time > 2_000_000_000 ? Math.floor(time / 1000) : time;
-              if (!Number.isFinite(t) || !Number.isFinite(close)) return null;
-              return { time: t, value: close };
-            })
-            .filter(Boolean) as LinePoint[];
-          if (out.length) return out;
-        }
-      }
-    } catch {}
+  for (const q of QUOTES) {
+    if (s.endsWith(q) && s.length > q.length) {
+      const base = s.slice(0, -q.length);
+      return { base, quote: q, pair: `${base} / ${q}` };
+    }
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  const step = interval === '1m' ? 60 : interval === '5m' ? 300 : interval === '30m' ? 1800 : 3600;
-
-  let price = 100 + Math.random() * 50;
-  const out: LinePoint[] = [];
-  for (let i = limit - 1; i >= 0; i--) {
-    const t = now - i * step;
-    price = Math.max(1, price + (Math.random() - 0.5) * 0.9);
-    out.push({ time: t, value: price });
+  // Fallback: try split last 3 or 4
+  if (s.length >= 6) {
+    const quote3 = s.slice(-3);
+    const base3 = s.slice(0, -3);
+    return { base: base3, quote: quote3, pair: `${base3} / ${quote3}` };
   }
-  return out;
+
+  return { base: s, quote: '', pair: s };
 }
 
 export default function TickerCard({
-  symbol = 'BTCUSDT',
+  symbol,
+  pair,
+  coin,
+  label,
   interval = '1m',
-}: {
-  symbol?: string;
-  interval?: Interval;
-}) {
+}: TickerCardProps) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<any>(null);
-  const seriesRef = useRef<any>(null);
-  const resizeObsRef = useRef<ResizeObserver | null>(null);
+  const [last, setLast] = useState<number | null>(null);
+  const [chg, setChg] = useState<number>(0);
 
-  const base = useMemo(() => symbol.replace('USDT', ''), [symbol]);
-  const title = useMemo(() => `${base}/USDT`, [base]);
-
-  const [last, setLast] = useState<number>(0);
+  const derived = useMemo(() => deriveFromSymbol(symbol), [symbol]);
+  const displayPair = pair ?? derived.pair;
+  const displayCoin = (coin ?? derived.base ?? '').toUpperCase();
+  const title = useMemo(() => label ?? displayPair, [label, displayPair]);
 
   useEffect(() => {
+    let chart: any = null;
+    let series: any = null;
     let alive = true;
 
-    (async () => {
+    async function boot() {
       if (!ref.current) return;
 
+      // IMPORTANT: requires `npm i lightweight-charts`
       const mod: any = await import('lightweight-charts');
-      const ColorType = mod.ColorType ?? { Solid: 'solid' };
+      if (!alive) return;
 
       ref.current.innerHTML = '';
 
-      const chart = mod.createChart(ref.current, {
-        height: 120,
+      chart = mod.createChart(ref.current, {
+        height: 76,
         layout: {
-          background: { type: ColorType.Solid, color: 'transparent' },
-          textColor: 'rgba(255,255,255,0.70)',
-          fontSize: 11,
+          background: { type: 'solid', color: 'transparent' },
+          textColor: 'rgba(255,255,255,0.75)',
         },
-        grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+        grid: {
+          vertLines: { color: 'rgba(255,255,255,0.06)' },
+          horzLines: { color: 'rgba(255,255,255,0.06)' },
+        },
         rightPriceScale: { visible: false },
         leftPriceScale: { visible: false },
-        timeScale: { visible: false },
-        crosshair: { vertLine: { visible: false }, horzLine: { visible: false } },
-        handleScroll: true,
-        handleScale: true,
+        timeScale: { visible: false, borderVisible: false },
+        crosshair: {
+          vertLine: { visible: false },
+          horzLine: { visible: false },
+        },
+        handleScroll: false,
+        handleScale: false,
       });
 
-      let line: any = null;
-      if (typeof chart.addLineSeries === 'function') {
-        line = chart.addLineSeries({ lineWidth: 2, color: '#00C8FF' });
-      } else if (typeof chart.addSeries === 'function') {
-        const LineSeries = mod.LineSeries;
-        line = chart.addSeries(LineSeries, { lineWidth: 2, color: '#00C8FF' });
-      }
-
-      chartRef.current = chart;
-      seriesRef.current = line;
-
-      resizeObsRef.current?.disconnect();
-      resizeObsRef.current = new ResizeObserver(() => {
-        if (!ref.current) return;
-        chart.applyOptions({ width: ref.current.clientWidth });
+      series = chart.addLineSeries({
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        color: 'rgba(34,211,238,0.95)',
       });
-      resizeObsRef.current.observe(ref.current);
 
-      const pts = await fetchLine(symbol, interval, 90);
+      const res = await fetch(`/api/kline?symbol=${symbol}&interval=${interval}`, {
+        cache: 'no-store',
+      });
+      const data = await res.json();
+
+      const klines = (data?.klines ?? []) as any[];
+      const pts: LinePoint[] = klines.map((k) => ({
+        time: Math.floor((k.openTime ?? 0) / 1000),
+        value: Number(k.close ?? 0),
+      }));
+
       if (!alive) return;
 
-      if (line?.setData) {
-        line.setData(pts.map((p) => ({ time: p.time as any, value: p.value })));
-      }
+      series.setData(pts);
 
-      setLast(pts?.[pts.length - 1]?.value ?? 0);
-      chart.timeScale().fitContent();
-    })();
+      const l = pts[pts.length - 1]?.value ?? null;
+      const p = pts[pts.length - 2]?.value ?? null;
+
+      setLast(l);
+      setChg(l != null && p ? ((l - p) / p) * 100 : 0);
+
+      const ro = new ResizeObserver(() => {
+        if (!ref.current || !chart) return;
+        chart.applyOptions({ width: ref.current.clientWidth });
+      });
+      ro.observe(ref.current);
+
+      return () => ro.disconnect();
+    }
+
+    boot();
 
     return () => {
       alive = false;
-      resizeObsRef.current?.disconnect();
-      resizeObsRef.current = null;
       try {
-        chartRef.current?.remove?.();
+        chart?.remove();
       } catch {}
-      chartRef.current = null;
-      seriesRef.current = null;
     };
   }, [symbol, interval]);
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-      <div className="flex items-center justify-between">
+    <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-black/35 p-4 shadow-[0_0_28px_rgba(0,255,255,0.08)] transition hover:border-cyan-400/35 hover:bg-black/45">
+      <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <CoinIcon coin={base} size={22} />
-          <div>
-            <div className="text-white font-semibold">{title}</div>
-            <div className="text-xs text-white/50">{symbol}</div>
+          <CoinIcon coin={displayCoin} size={20} className="opacity-95" />
+          <div className="leading-tight">
+            <div className="text-sm font-semibold text-white/90">{displayPair}</div>
+            <div className="text-[11px] text-white/45">{title}</div>
           </div>
         </div>
 
         <div className="text-right">
-          <div className="text-xs text-white/50">Last</div>
-          <div className="text-white/90 font-semibold">{fmt(last, 2)}</div>
+          <div className="text-sm font-semibold text-white/90">
+            {last == null ? '—' : fmt(last)}
+          </div>
+          <div
+            className={`text-[11px] ${
+              chg > 0
+                ? 'text-emerald-300'
+                : chg < 0
+                ? 'text-rose-300'
+                : 'text-white/45'
+            }`}
+          >
+            {last == null ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
+          </div>
         </div>
       </div>
 
-      <div className="mt-3">
-        <div ref={ref} />
-        <div className="mt-2 text-[11px] text-white/40">Live feed via proxy /api/price</div>
+      <div className="relative">
+        <div
+          className="pointer-events-none absolute -inset-2 opacity-0 blur-2xl transition group-hover:opacity-100"
+          style={{
+            background:
+              'radial-gradient(circle at 50% 50%, rgba(34,211,238,0.18), transparent 60%)',
+          }}
+        />
+        <div ref={ref} className="h-[76px] w-full" />
       </div>
     </div>
   );
