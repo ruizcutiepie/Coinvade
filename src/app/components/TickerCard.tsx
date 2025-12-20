@@ -1,181 +1,196 @@
-"use client";
+// src/app/components/TickerCard.tsx
+'use client';
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import CoinIcon from './CoinIcon';
 
-type Props = {
-  /** e.g. "BTCUSDT", "ETHUSDT", "SOLUSDT" */
-  symbol: string;
-};
+type Interval = '1m' | '5m' | '30m' | '1h';
+type LinePoint = { time: number; value: number };
 
-type PriceResponse = { price: number; percent?: number } | { error: string };
+function toNum(v: any) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 
-const CARD_POLL_MS = 5000; // poll every 5s
-const HISTORY_LEN = 40; // how many points to keep for sparkline
+function parseToLinePoints(raw: any): LinePoint[] {
+  const arr = Array.isArray(raw) ? raw : raw?.klines || raw?.data || raw?.result;
+  if (!Array.isArray(arr)) return [];
 
-export default function TickerCard({ symbol }: Props) {
-  const [price, setPrice] = useState<number | null>(null);
-  const [percent, setPercent] = useState<number | null>(null);
-  const [history, setHistory] = useState<number[]>([]);
-  const timerRef = useRef<number | null>(null);
+  if (Array.isArray(arr[0])) {
+    return arr
+      .map((k: any[]) => ({ time: Math.floor(toNum(k[0]) / 1000), value: toNum(k[4]) }))
+      .filter((p) => p.time > 0 && p.value > 0);
+  }
 
-  // "BTCUSDT" -> base "BTC"
-  const base = useMemo(() => symbol.replace("USDT", ""), [symbol]);
+  return arr
+    .map((k: any) => ({
+      time: Math.floor(toNum(k.openTime ?? k.t ?? k.time ?? 0) / 1000),
+      value: toNum(k.close),
+    }))
+    .filter((p) => p.time > 0 && p.value > 0);
+}
 
-  // "BTCUSDT" -> "BTC/USDT"
-  const label = useMemo(() => `${base}/USDT`, [base]);
+async function fetchSpark(symbol: string, interval: Interval, limit = 120): Promise<LinePoint[]> {
+  const url = `/api/kline?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(
+    interval
+  )}&limit=${limit}`;
 
-  // icon path
-  const iconSrc = useMemo(() => `/icons/${base.toLowerCase()}.svg`, [base]);
+  const res = await fetch(url, { cache: 'no-store' });
+  const txt = await res.text();
+  let j: any = null;
+  try {
+    j = JSON.parse(txt);
+  } catch {
+    j = txt;
+  }
+  if (!res.ok) return [];
+  const payload = j?.data ?? j?.result ?? j;
+  return parseToLinePoints(payload);
+}
 
-  // fetch once and then every 5s
+export default function TickerCard({
+  symbol,
+  interval = '1m',
+}: {
+  symbol: string; // e.g. BTCUSDT
+  interval?: Interval;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<any>(null);
+  const seriesRef = useRef<any>(null);
+
+  const [points, setPoints] = useState<LinePoint[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const coin = useMemo(() => symbol.replace('USDT', '').toUpperCase(), [symbol]);
+
+  const last = useMemo(() => {
+    if (!points.length) return null;
+    return points[points.length - 1]?.value ?? null;
+  }, [points]);
+
+  // Fetch initial + refresh
   useEffect(() => {
-    let abort = false;
+    let alive = true;
 
-    const fetchOnce = async () => {
+    const load = async () => {
       try {
-        const r = await fetch(`/api/price?symbol=${symbol}`, { cache: "no-store" });
-        const data: PriceResponse = await r.json();
-
-        if ("error" in data) return; // silent fail (bad gateway, etc.)
-        if (abort) return;
-
-        setPrice(data.price);
-        setPercent(typeof data.percent === "number" ? data.percent : null);
-
-        // build rolling spark history locally from live price
-        setHistory((h) => {
-          const next = [...h, data.price];
-          if (next.length > HISTORY_LEN) next.shift();
-          return next;
-        });
-      } catch {
-        /* ignore; transient network errors already handled by proxy */
+        setLoading(true);
+        const p = await fetchSpark(symbol, interval, 120);
+        if (!alive) return;
+        setPoints(p);
+      } catch (e) {
+        console.error('[TickerCard] fetch error', e);
+        if (alive) setPoints([]);
+      } finally {
+        if (alive) setLoading(false);
       }
     };
 
-    fetchOnce();
-    timerRef.current = window.setInterval(fetchOnce, CARD_POLL_MS);
+    load();
+    const t = setInterval(load, 5000);
 
     return () => {
-      abort = true;
-      if (timerRef.current) window.clearInterval(timerRef.current);
+      alive = false;
+      clearInterval(t);
     };
-  }, [symbol]);
+  }, [symbol, interval]);
 
-  // compute sparkline path
-  const { path, fillPath, up } = useMemo(() => {
-    const w = 220; // SVG width
-    const h = 60; // SVG height
-    const pad = 2;
+  // Create chart once (typing-safe via any)
+  useEffect(() => {
+    let cleanup = () => {};
 
-    if (history.length < 2) {
-      return { path: "", fillPath: "", up: true };
-    }
+    (async () => {
+      if (!ref.current) return;
 
-    const min = Math.min(...history);
-    const max = Math.max(...history);
-    const span = max - min || 1; // avoid div/0 when flat
+      const mod: any = await import('lightweight-charts');
+      const createChart = mod.createChart;
 
-    const points = history.map((v, i) => {
-      const x = pad + (i * (w - pad * 2)) / (history.length - 1);
-      const y = h - pad - ((v - min) / span) * (h - pad * 2);
-      return [x, y] as const;
-    });
+      ref.current.innerHTML = '';
 
-    const d =
-      "M " +
-      points
-        .map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`)
-        .join(" L ");
+      const chart = createChart(ref.current, {
+        autoSize: true,
+        layout: {
+          background: { color: 'transparent' },
+          textColor: 'rgba(255,255,255,0.55)',
+        },
+        grid: {
+          vertLines: { color: 'rgba(255,255,255,0.05)' },
+          horzLines: { color: 'rgba(255,255,255,0.05)' },
+        },
+        rightPriceScale: { visible: false },
+        leftPriceScale: { visible: false },
+        timeScale: { visible: false },
+        crosshair: { mode: 0 },
+        handleScroll: true,
+        handleScale: true,
+      } as any);
 
-    // area under curve for subtle glow
-    const fillD =
-      d +
-      ` L ${points.at(-1)![0].toFixed(2)} ${h - pad} L ${points[0][0].toFixed(
-        2
-      )} ${h - pad} Z`;
+      // ✅ Use any: fixes “addAreaSeries does not exist” typing mismatch
+      const series = (chart as any).addAreaSeries({
+        lineColor: 'rgba(34,211,238,0.95)',
+        topColor: 'rgba(34,211,238,0.25)',
+        bottomColor: 'rgba(34,211,238,0.02)',
+        lineWidth: 2,
+      });
 
-    const isUp = history[history.length - 1] >= history[0];
-    return { path: d, fillPath: fillD, up: isUp };
-  }, [history]);
+      chartRef.current = chart;
+      seriesRef.current = series;
 
-  const priceText =
-    price == null
-      ? "…"
-      : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(price);
+      cleanup = () => {
+        try {
+          chart.remove();
+        } catch {}
+        chartRef.current = null;
+        seriesRef.current = null;
+      };
+    })();
 
-  const percentText =
-    percent == null ? "" : `${percent >= 0 ? "+" : ""}${percent.toFixed(2)}%`;
+    return () => cleanup();
+  }, []);
+
+  // Update data
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    seriesRef.current.setData(points);
+    try {
+      chartRef.current?.timeScale?.fitContent?.();
+    } catch {}
+  }, [points]);
 
   return (
-    <div className="rounded-2xl border border-white/10 p-6 bg-[var(--surface)] shadow-lg neon-ring">
-      {/* header row */}
-      <div className="flex items-center justify-between mb-4">
+    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+      <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          {/* ✅ coin icon with fallback */}
-          <img
-            src={iconSrc}
-            alt={base}
-            className="h-9 w-9 rounded-full border border-white/10 bg-black/40 object-contain p-1"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).src = "/icons/coin.svg";
-            }}
-          />
-          <div className="leading-tight">
-            <h3 className="text-lg font-semibold text-white">{label}</h3>
+          <CoinIcon coin={coin} size={28} />
+          <div>
+            <div className="text-lg font-semibold text-white/90">{coin}/USDT</div>
             <div className="text-[11px] text-white/50">{symbol}</div>
           </div>
         </div>
 
-        <button className="text-white/50 hover:text-white transition">⋯</button>
-      </div>
-
-      {/* price + sparkline */}
-      <div className="flex items-center gap-6">
-        <div className="min-w-[140px]">
-          <div className="text-3xl font-semibold text-white">{priceText}</div>
-          <div
-            className={`mt-1 text-sm font-medium ${
-              (percent ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"
-            }`}
-          >
-            {percentText}
+        <div className="text-right">
+          <div className="text-xs text-white/60">Last Price</div>
+          <div className="text-xl font-semibold text-cyan-200">
+            {last != null ? last.toLocaleString() : '—'}
           </div>
+          <div className="text-[11px] text-white/50">{loading ? 'Updating…' : '\u00A0'}</div>
         </div>
-
-        {/* SVG sparkline */}
-        <svg
-          width="220"
-          height="60"
-          viewBox="0 0 220 60"
-          className="flex-1"
-          aria-hidden="true"
-        >
-          {/* soft area */}
-          {fillPath && (
-            <path
-              d={fillPath}
-              fill={up ? "rgba(16,185,129,0.12)" : "rgba(244,63,94,0.12)"}
-            />
-          )}
-          {/* line */}
-          {path && (
-            <path
-              d={path}
-              fill="none"
-              stroke={up ? "rgb(16,185,129)" : "rgb(244,63,94)"}
-              strokeWidth="2"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              style={{ filter: "drop-shadow(0 0 6px rgba(0,224,255,.25))" }}
-            />
-          )}
-        </svg>
       </div>
 
-      {/* footer */}
-      <div className="mt-4 text-xs text-white/50">
-        Live feed via proxy <span className="text-white/60">/api/price</span>
+      <div className="mt-3 rounded-xl border border-white/10 bg-black/40 p-3">
+        <div
+          ref={ref}
+          className="h-[140px] w-full"
+          style={{ filter: 'drop-shadow(0 0 14px rgba(34,211,238,.10))' }}
+        />
+        {!points.length && !loading && (
+          <div className="mt-2 text-xs text-white/40">No sparkline data (check /api/kline).</div>
+        )}
+      </div>
+
+      <div className="mt-2 text-[11px] text-white/40">
+        Live feed via <span className="text-white/60">/api/kline</span>
       </div>
     </div>
   );
