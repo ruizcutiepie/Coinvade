@@ -2,50 +2,79 @@
 'use client';
 
 import React from 'react';
-import Image from 'next/image';
 
 type Props = {
-  coin: string; // "BTC"
+  /** preferred prop */
+  coin?: string;
+  /** optional prop (some pages pass `symbol`) */
+  symbol?: string;
   size?: number;
   className?: string;
 };
 
-const MAP: Record<string, string> = {
-  BTC: '/coins/btc.svg',
-  ETH: '/coins/eth.svg',
-  SOL: '/coins/sol.svg',
-  XRP: '/coins/xrp.svg',
-  ADA: '/coins/ada.svg',
-  BNB: '/coins/bnb.svg',
-  DOGE: '/coins/doge.svg',
-  DOT: '/coins/dot.svg',
-  USDT: '/coins/usdt.svg',
-};
+/**
+ * Local-rendered icon (no remote fetch) to avoid broken images on Vercel.
+ * Accepts either `coin="BTC"` or `symbol="BTCUSDT"`.
+ */
+export default function CoinIcon({ coin, symbol, size = 18, className }: Props) {
+  const raw = (coin || symbol || 'USDT').toUpperCase();
 
-export default function CoinIcon({ coin, size = 18, className }: Props) {
-  const key = String(coin || '').toUpperCase();
-  const src = MAP[key];
+  // If symbol like BTCUSDT, derive BTC
+  const c = raw.endsWith('USDT') ? raw.replace('USDT', '') : raw;
 
-  if (!src) {
-    return (
-      <span
-        className={`inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 text-[10px] text-white/70 ${className ?? ''}`}
-        style={{ width: size, height: size }}
-        title={key}
-      >
-        {key.slice(0, 2)}
-      </span>
-    );
-  }
+  // simple deterministic colors per coin (no external assets)
+  const bg =
+    c === 'BTC'
+      ? '#F7931A'
+      : c === 'ETH'
+      ? '#627EEA'
+      : c === 'SOL'
+      ? '#14F195'
+      : c === 'XRP'
+      ? '#9CA3AF'
+      : c === 'ADA'
+      ? '#3CC8C8'
+      : c === 'BNB'
+      ? '#F3BA2F'
+      : c === 'DOGE'
+      ? '#C2A633'
+      : c === 'DOT'
+      ? '#E6007A'
+      : c === 'USDT'
+      ? '#26A17B'
+      : '#22d3ee';
+
+  const label = c.length <= 4 ? c : c.slice(0, 4);
 
   return (
-    <Image
-      src={src}
-      alt={key}
-      width={size}
-      height={size}
+    <span
       className={className}
-      priority={false}
-    />
+      style={{
+        display: 'inline-flex',
+        width: size,
+        height: size,
+        borderRadius: 999,
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: bg,
+        boxShadow: '0 0 12px rgba(0,255,255,0.15)',
+        flex: '0 0 auto',
+      }}
+      aria-label={`${c} icon`}
+      title={c}
+    >
+      <span
+        style={{
+          fontSize: Math.max(9, Math.floor(size * 0.45)),
+          fontWeight: 800,
+          color: 'rgba(0,0,0,0.85)',
+          letterSpacing: '-0.02em',
+          lineHeight: 1,
+          userSelect: 'none',
+        }}
+      >
+        {label === 'USDT' ? 'T' : label[0]}
+      </span>
+    </span>
   );
 }
