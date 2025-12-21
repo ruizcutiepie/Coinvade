@@ -1,94 +1,72 @@
-// src/app/components/CoinIcon.tsx
 'use client';
 
 import React, { useMemo, useState } from 'react';
 import Image from 'next/image';
 
 type Props = {
-  coin: string; // BTC, ETH, etc
+  coin: string; // "BTC", "ETH", etc.
   size?: number;
   className?: string;
 };
 
-function normalizeCoin(coin: string) {
-  return (coin || '').toUpperCase().trim();
-}
+// Put your SVGs/PNGs here: /public/coins/btc.svg, /public/coins/eth.svg, ...
+function coinToSrc(coin: string) {
+  const c = (coin || '').trim().toLowerCase();
 
-function coinToLocalSrc(coin: string) {
-  // expects these files inside /public
-  // e.g. /public/btc.svg
-  const c = normalizeCoin(coin).toLowerCase();
+  // normalize common variants
+  if (c === 'usdt') return '/coins/usdt.svg';
+  if (c === 'btc') return '/coins/btc.svg';
+  if (c === 'eth') return '/coins/eth.svg';
+  if (c === 'sol') return '/coins/sol.svg';
+  if (c === 'xrp') return '/coins/xrp.svg';
+  if (c === 'ada') return '/coins/ada.svg';
+  if (c === 'bnb') return '/coins/bnb.svg';
+  if (c === 'doge') return '/coins/doge.svg';
+  if (c === 'dot') return '/coins/dot.svg';
 
-  // map any custom aliases if needed
-  const map: Record<string, string> = {
-    bitcoin: 'btc',
-    ethereum: 'eth',
-  };
-
-  const file = map[c] ?? c;
-  return `/${file}.svg`;
-}
-
-function fallbackBg(coin: string) {
-  // deterministic-ish class per coin (no external assets)
-  const c = normalizeCoin(coin);
-  const buckets = [
-    'bg-white/10',
-    'bg-cyan-500/15',
-    'bg-emerald-500/15',
-    'bg-rose-500/15',
-    'bg-indigo-500/15',
-    'bg-amber-500/15',
-  ];
-  let h = 0;
-  for (let i = 0; i < c.length; i++) h = (h * 31 + c.charCodeAt(i)) >>> 0;
-  return buckets[h % buckets.length];
+  // fallback guess (if you add more later)
+  return `/coins/${c}.svg`;
 }
 
 export default function CoinIcon({ coin, size = 18, className }: Props) {
-  const c = normalizeCoin(coin);
-  const [imgFailed, setImgFailed] = useState(false);
+  const [failed, setFailed] = useState(false);
 
-  const src = useMemo(() => coinToLocalSrc(c), [c]);
-  const badge = useMemo(() => {
-    if (!c) return '?';
-    if (c.length <= 4) return c;
-    return c.slice(0, 4);
-  }, [c]);
+  const src = useMemo(() => coinToSrc(coin), [coin]);
 
-  // If you DON'T have local svg icons, this will gracefully fall back.
-  if (imgFailed) {
+  // Nice fallback initials (never broken)
+  const initials = (coin || '?').toUpperCase().slice(0, 2);
+
+  if (failed) {
     return (
-      <div
+      <span
         className={[
-          'inline-flex items-center justify-center rounded-full border border-white/15 text-white/90 font-semibold',
-          fallbackBg(c),
-          className ?? '',
+          'inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 text-[10px] font-semibold text-white/80',
+          className || '',
         ].join(' ')}
-        style={{ width: size, height: size, fontSize: Math.max(9, size * 0.45) }}
-        aria-label={`${c} icon`}
-        title={c}
+        style={{ width: size, height: size }}
+        aria-label={`${coin} icon`}
+        title={coin}
       >
-        {badge}
-      </div>
+        {initials}
+      </span>
     );
   }
 
   return (
     <span
-      className={['inline-flex items-center justify-center', className ?? ''].join(' ')}
+      className={['inline-flex items-center justify-center', className || ''].join(' ')}
       style={{ width: size, height: size }}
-      aria-label={`${c} icon`}
-      title={c}
+      aria-label={`${coin} icon`}
+      title={coin}
     >
       <Image
         src={src}
-        alt={`${c} icon`}
+        alt={`${coin} icon`}
         width={size}
         height={size}
-        // If the image is missing/broken, we swap to fallback badge
-        onError={() => setImgFailed(true)}
+        className="rounded-full"
         priority={false}
+        onError={() => setFailed(true)} // ✅ prevents broken image
       />
     </span>
   );
