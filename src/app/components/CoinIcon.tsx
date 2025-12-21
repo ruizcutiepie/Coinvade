@@ -1,80 +1,95 @@
 // src/app/components/CoinIcon.tsx
 'use client';
 
-import React from 'react';
+import React, { useMemo, useState } from 'react';
+import Image from 'next/image';
 
 type Props = {
-  /** preferred prop */
-  coin?: string;
-  /** optional prop (some pages pass `symbol`) */
-  symbol?: string;
+  coin: string; // BTC, ETH, etc
   size?: number;
   className?: string;
 };
 
-/**
- * Local-rendered icon (no remote fetch) to avoid broken images on Vercel.
- * Accepts either `coin="BTC"` or `symbol="BTCUSDT"`.
- */
-export default function CoinIcon({ coin, symbol, size = 18, className }: Props) {
-  const raw = (coin || symbol || 'USDT').toUpperCase();
+function normalizeCoin(coin: string) {
+  return (coin || '').toUpperCase().trim();
+}
 
-  // If symbol like BTCUSDT, derive BTC
-  const c = raw.endsWith('USDT') ? raw.replace('USDT', '') : raw;
+function coinToLocalSrc(coin: string) {
+  // expects these files inside /public
+  // e.g. /public/btc.svg
+  const c = normalizeCoin(coin).toLowerCase();
 
-  // simple deterministic colors per coin (no external assets)
-  const bg =
-    c === 'BTC'
-      ? '#F7931A'
-      : c === 'ETH'
-      ? '#627EEA'
-      : c === 'SOL'
-      ? '#14F195'
-      : c === 'XRP'
-      ? '#9CA3AF'
-      : c === 'ADA'
-      ? '#3CC8C8'
-      : c === 'BNB'
-      ? '#F3BA2F'
-      : c === 'DOGE'
-      ? '#C2A633'
-      : c === 'DOT'
-      ? '#E6007A'
-      : c === 'USDT'
-      ? '#26A17B'
-      : '#22d3ee';
+  // map any custom aliases if needed
+  const map: Record<string, string> = {
+    bitcoin: 'btc',
+    ethereum: 'eth',
+  };
 
-  const label = c.length <= 4 ? c : c.slice(0, 4);
+  const file = map[c] ?? c;
+  return `/${file}.svg`;
+}
+
+function fallbackBg(coin: string) {
+  // deterministic-ish class per coin (no external assets)
+  const c = normalizeCoin(coin);
+  const buckets = [
+    'bg-white/10',
+    'bg-cyan-500/15',
+    'bg-emerald-500/15',
+    'bg-rose-500/15',
+    'bg-indigo-500/15',
+    'bg-amber-500/15',
+  ];
+  let h = 0;
+  for (let i = 0; i < c.length; i++) h = (h * 31 + c.charCodeAt(i)) >>> 0;
+  return buckets[h % buckets.length];
+}
+
+export default function CoinIcon({ coin, size = 18, className }: Props) {
+  const c = normalizeCoin(coin);
+  const [imgFailed, setImgFailed] = useState(false);
+
+  const src = useMemo(() => coinToLocalSrc(c), [c]);
+  const badge = useMemo(() => {
+    if (!c) return '?';
+    if (c.length <= 4) return c;
+    return c.slice(0, 4);
+  }, [c]);
+
+  // If you DON'T have local svg icons, this will gracefully fall back.
+  if (imgFailed) {
+    return (
+      <div
+        className={[
+          'inline-flex items-center justify-center rounded-full border border-white/15 text-white/90 font-semibold',
+          fallbackBg(c),
+          className ?? '',
+        ].join(' ')}
+        style={{ width: size, height: size, fontSize: Math.max(9, size * 0.45) }}
+        aria-label={`${c} icon`}
+        title={c}
+      >
+        {badge}
+      </div>
+    );
+  }
 
   return (
     <span
-      className={className}
-      style={{
-        display: 'inline-flex',
-        width: size,
-        height: size,
-        borderRadius: 999,
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: bg,
-        boxShadow: '0 0 12px rgba(0,255,255,0.15)',
-        flex: '0 0 auto',
-      }}
+      className={['inline-flex items-center justify-center', className ?? ''].join(' ')}
+      style={{ width: size, height: size }}
       aria-label={`${c} icon`}
       title={c}
     >
-      <span
-        style={{
-          fontSize: Math.max(9, Math.floor(size * 0.45)),
-          fontWeight: 800,
-          color: 'rgba(0,0,0,0.85)',
-          letterSpacing: '-0.02em',
-          lineHeight: 1,
-          userSelect: 'none',
-        }}
-      >
-        {label === 'USDT' ? 'T' : label[0]}
-      </span>
+      <Image
+        src={src}
+        alt={`${c} icon`}
+        width={size}
+        height={size}
+        // If the image is missing/broken, we swap to fallback badge
+        onError={() => setImgFailed(true)}
+        priority={false}
+      />
     </span>
   );
 }
