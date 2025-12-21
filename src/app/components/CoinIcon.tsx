@@ -8,60 +8,58 @@ type Props = {
   className?: string;
 };
 
-/**
- * CoinIcon (NO <img> / NO next/image)
- * - Always renders a stable inline icon (won't blink / won't break on Vercel)
- * - Uses coin letter + subtle glow so it still looks "premium"
- */
-export default function CoinIcon({ coin, size = 18, className = '' }: Props) {
+function letterForCoin(coin: string) {
   const c = (coin || '').toUpperCase();
+  if (c === 'BTC') return 'B';
+  if (c === 'ETH') return 'E';
+  if (c === 'SOL') return 'S';
+  if (c === 'XRP') return 'X';
+  if (c === 'ADA') return 'A';
+  if (c === 'BNB') return 'B';
+  if (c === 'DOGE') return 'D';
+  if (c === 'DOT') return 'D';
+  if (c === 'USDT') return 'U';
+  return c.slice(0, 1) || '?';
+}
 
-  // Small per-coin accent (optional)
-  const accent =
-    c === 'BTC'
-      ? 'from-amber-400/90 to-amber-200/40'
-      : c === 'ETH'
-      ? 'from-indigo-300/90 to-indigo-200/30'
-      : c === 'SOL'
-      ? 'from-cyan-300/90 to-fuchsia-300/30'
-      : c === 'XRP'
-      ? 'from-slate-200/80 to-slate-400/30'
-      : c === 'ADA'
-      ? 'from-sky-300/90 to-sky-200/30'
-      : c === 'BNB'
-      ? 'from-yellow-300/90 to-yellow-200/30'
-      : c === 'DOGE'
-      ? 'from-yellow-200/90 to-amber-200/30'
-      : c === 'DOT'
-      ? 'from-pink-300/90 to-pink-200/30'
-      : c === 'USDT'
-      ? 'from-emerald-300/90 to-emerald-200/30'
-      : 'from-white/30 to-white/10';
+function ringClass(coin: string) {
+  // subtle per-coin glow without images
+  const c = coin.toUpperCase();
+  if (c === 'BTC') return 'ring-amber-400/40 shadow-[0_0_18px_rgba(251,191,36,0.18)]';
+  if (c === 'ETH') return 'ring-indigo-400/40 shadow-[0_0_18px_rgba(129,140,248,0.18)]';
+  if (c === 'SOL') return 'ring-cyan-400/40 shadow-[0_0_18px_rgba(34,211,238,0.18)]';
+  if (c === 'XRP') return 'ring-slate-300/30 shadow-[0_0_18px_rgba(203,213,225,0.12)]';
+  if (c === 'ADA') return 'ring-sky-400/40 shadow-[0_0_18px_rgba(56,189,248,0.16)]';
+  if (c === 'BNB') return 'ring-yellow-300/40 shadow-[0_0_18px_rgba(253,224,71,0.16)]';
+  if (c === 'DOGE') return 'ring-yellow-200/35 shadow-[0_0_18px_rgba(254,240,138,0.14)]';
+  if (c === 'DOT') return 'ring-pink-400/40 shadow-[0_0_18px_rgba(244,114,182,0.14)]';
+  if (c === 'USDT') return 'ring-emerald-400/40 shadow-[0_0_18px_rgba(52,211,153,0.14)]';
+  return 'ring-white/15';
+}
 
-  const letter = c ? c[0] : '?';
-
-  const px = Math.max(14, size); // keep legible
-  const fontSize = Math.max(9, Math.floor(px * 0.48));
+export default function CoinIcon({ coin, size = 18, className = '' }: Props) {
+  const letter = letterForCoin(coin);
+  const ring = ringClass(coin);
 
   return (
     <span
       className={[
         'inline-flex items-center justify-center rounded-full',
-        'border border-white/10 bg-gradient-to-b',
-        accent,
-        'shadow-[0_0_18px_rgba(0,255,255,0.10)]',
+        'bg-white/5 text-white/85 ring-1',
+        ring,
         className,
       ].join(' ')}
       style={{
-        width: px,
-        height: px,
-        fontSize,
+        width: size,
+        height: size,
+        fontSize: Math.max(10, Math.floor(size * 0.55)),
         lineHeight: 1,
+        fontWeight: 700,
       }}
-      aria-label={`${c} icon`}
-      title={c}
+      aria-label={`${coin} icon`}
+      title={coin}
     >
-      <span className="font-semibold text-black/80">{letter}</span>
+      {letter}
     </span>
   );
 }
