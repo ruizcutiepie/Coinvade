@@ -1,73 +1,67 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import Image from 'next/image';
+import React from 'react';
 
 type Props = {
-  coin: string; // "BTC", "ETH", etc.
+  coin: string;
   size?: number;
   className?: string;
 };
 
-// Put your SVGs/PNGs here: /public/coins/btc.svg, /public/coins/eth.svg, ...
-function coinToSrc(coin: string) {
-  const c = (coin || '').trim().toLowerCase();
+/**
+ * CoinIcon (NO <img> / NO next/image)
+ * - Always renders a stable inline icon (won't blink / won't break on Vercel)
+ * - Uses coin letter + subtle glow so it still looks "premium"
+ */
+export default function CoinIcon({ coin, size = 18, className = '' }: Props) {
+  const c = (coin || '').toUpperCase();
 
-  // normalize common variants
-  if (c === 'usdt') return '/coins/usdt.svg';
-  if (c === 'btc') return '/coins/btc.svg';
-  if (c === 'eth') return '/coins/eth.svg';
-  if (c === 'sol') return '/coins/sol.svg';
-  if (c === 'xrp') return '/coins/xrp.svg';
-  if (c === 'ada') return '/coins/ada.svg';
-  if (c === 'bnb') return '/coins/bnb.svg';
-  if (c === 'doge') return '/coins/doge.svg';
-  if (c === 'dot') return '/coins/dot.svg';
+  // Small per-coin accent (optional)
+  const accent =
+    c === 'BTC'
+      ? 'from-amber-400/90 to-amber-200/40'
+      : c === 'ETH'
+      ? 'from-indigo-300/90 to-indigo-200/30'
+      : c === 'SOL'
+      ? 'from-cyan-300/90 to-fuchsia-300/30'
+      : c === 'XRP'
+      ? 'from-slate-200/80 to-slate-400/30'
+      : c === 'ADA'
+      ? 'from-sky-300/90 to-sky-200/30'
+      : c === 'BNB'
+      ? 'from-yellow-300/90 to-yellow-200/30'
+      : c === 'DOGE'
+      ? 'from-yellow-200/90 to-amber-200/30'
+      : c === 'DOT'
+      ? 'from-pink-300/90 to-pink-200/30'
+      : c === 'USDT'
+      ? 'from-emerald-300/90 to-emerald-200/30'
+      : 'from-white/30 to-white/10';
 
-  // fallback guess (if you add more later)
-  return `/coins/${c}.svg`;
-}
+  const letter = c ? c[0] : '?';
 
-export default function CoinIcon({ coin, size = 18, className }: Props) {
-  const [failed, setFailed] = useState(false);
-
-  const src = useMemo(() => coinToSrc(coin), [coin]);
-
-  // Nice fallback initials (never broken)
-  const initials = (coin || '?').toUpperCase().slice(0, 2);
-
-  if (failed) {
-    return (
-      <span
-        className={[
-          'inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 text-[10px] font-semibold text-white/80',
-          className || '',
-        ].join(' ')}
-        style={{ width: size, height: size }}
-        aria-label={`${coin} icon`}
-        title={coin}
-      >
-        {initials}
-      </span>
-    );
-  }
+  const px = Math.max(14, size); // keep legible
+  const fontSize = Math.max(9, Math.floor(px * 0.48));
 
   return (
     <span
-      className={['inline-flex items-center justify-center', className || ''].join(' ')}
-      style={{ width: size, height: size }}
-      aria-label={`${coin} icon`}
-      title={coin}
+      className={[
+        'inline-flex items-center justify-center rounded-full',
+        'border border-white/10 bg-gradient-to-b',
+        accent,
+        'shadow-[0_0_18px_rgba(0,255,255,0.10)]',
+        className,
+      ].join(' ')}
+      style={{
+        width: px,
+        height: px,
+        fontSize,
+        lineHeight: 1,
+      }}
+      aria-label={`${c} icon`}
+      title={c}
     >
-      <Image
-        src={src}
-        alt={`${coin} icon`}
-        width={size}
-        height={size}
-        className="rounded-full"
-        priority={false}
-        onError={() => setFailed(true)} // ✅ prevents broken image
-      />
+      <span className="font-semibold text-black/80">{letter}</span>
     </span>
   );
 }
