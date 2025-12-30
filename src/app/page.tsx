@@ -1,26 +1,23 @@
-// src/app/page.tsx
 'use client';
 
 import React from 'react';
 import Link from 'next/link';
 
 import BigMarketsMap from './components/BigMarketsMap';
+import HeroKlinePanel from './components/HeroKlinePanel';
 import { useLang, LANG_OPTIONS, tr, type LangCode } from './components/useLang';
 import WalletBalance from './components/WalletBalance';
 
 export default function Home() {
   const { lang, setLang } = useLang();
-  const currentLang =
-    LANG_OPTIONS.find((l) => l.code === lang) ?? LANG_OPTIONS[0];
+  const currentLang = LANG_OPTIONS.find((l) => l.code === lang) ?? LANG_OPTIONS[0];
 
   return (
     <main className="min-h-screen px-6 pb-16 pt-6 text-white">
-      {/* TOP BAR */}
       <div className="mb-8 flex items-center justify-between gap-3">
         <div className="text-lg tracking-wide text-[var(--neon)]">COINVADE</div>
 
         <div className="flex items-center gap-3">
-          {/* LANGUAGE SELECTOR (HOMEPAGE ONLY, NOT FLOATING) */}
           <div className="hidden sm:flex items-center gap-2 rounded-2xl border border-white/15 bg-black/40 px-3 py-2 text-xs text-white/70">
             <span className="text-lg">{currentLang.flag}</span>
             <select
@@ -36,12 +33,10 @@ export default function Home() {
             </select>
           </div>
 
-          {/* DB WALLET BALANCE */}
           <WalletBalance />
         </div>
       </div>
 
-      {/* NAVIGATION */}
       <div className="mb-8 flex justify-center gap-8 text-white/80">
         <Nav to="#" label={tr('nav.verify', lang)} />
         <Nav to="/" label={tr('nav.markets', lang)} />
@@ -49,7 +44,14 @@ export default function Home() {
         <Nav to="/trade" label={tr('nav.trade', lang)} />
       </div>
 
-      {/* MARKET SECTION */}
+      {/* HERO CANDLES */}
+      <HeroKlinePanel lang={lang} />
+
+      <h1 className="mx-auto mb-2 max-w-5xl text-center text-4xl font-extrabold text-white sm:text-5xl">
+        {tr('markets.heading', lang)}
+      </h1>
+      <p className="mb-10 text-center text-sm text-white/60">{tr('markets.sub', lang)}</p>
+
       <section className="mx-auto max-w-6xl">
         <BigMarketsMap />
       </section>
@@ -64,9 +66,5 @@ function Nav({ to, label }: { to: string; label: string }) {
     </span>
   );
 
-  return to.startsWith('/') ? (
-    <Link href={to}>{inner}</Link>
-  ) : (
-    <a href={to}>{inner}</a>
-  );
+  return to.startsWith('/') ? <Link href={to}>{inner}</Link> : <a href={to}>{inner}</a>;
 }
