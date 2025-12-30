@@ -1,4 +1,3 @@
-// src/app/wallet/WalletClient.tsx
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -41,11 +40,12 @@ const SUPPORTED_COINS: Coin[] = [
 ];
 
 export default function WalletClient() {
-  const { lang } = useLang(); // keeping since you already had it (even if not used)
+  useLang(); // keeps your lang hook active (even if not used here)
 
   const [tab, setTab] = useState<Tab>('overview');
 
-  const [wallet, setWallet] = useState<WalletState>({
+  // Demo balances (keep your real balances if you already have them)
+  const [wallet] = useState<WalletState>({
     BTC: 0,
     ETH: 0,
     SOL: 0,
@@ -71,6 +71,7 @@ export default function WalletClient() {
 
   const [pricesOk, setPricesOk] = useState(true);
 
+  // Load prices from /api/prices (Vercel-safe)
   useEffect(() => {
     let cancelled = false;
 
@@ -84,7 +85,6 @@ export default function WalletClient() {
         if (cancelled) return;
 
         const p = data.prices as Record<string, number>;
-
         setPrices({
           BTC: Number(p.BTC ?? 0),
           ETH: Number(p.ETH ?? 0),
@@ -105,6 +105,7 @@ export default function WalletClient() {
 
     loadPrices();
     const t = setInterval(loadPrices, 20_000);
+
     return () => {
       cancelled = true;
       clearInterval(t);
@@ -121,7 +122,7 @@ export default function WalletClient() {
     });
   }, [wallet, prices]);
 
-  const totalValue = useMemo(() => rows.reduce((sum, r) => sum + r.value, 0), [rows]);
+  const totalValue = useMemo(() => rows.reduce((s, r) => s + r.value, 0), [rows]);
 
   const [fromCoin, setFromCoin] = useState<Coin>('BTC');
   const [toCoin, setToCoin] = useState<Coin>('USDT');
@@ -134,6 +135,7 @@ export default function WalletClient() {
   return (
     <AppShell>
       <div className="mx-auto max-w-6xl px-6 pb-14 pt-8 text-white">
+        {/* Tabs */}
         <div className="mx-auto mb-8 flex max-w-xl justify-center gap-4">
           <button
             onClick={() => setTab('overview')}
@@ -171,6 +173,7 @@ export default function WalletClient() {
 
         {tab === 'overview' && (
           <div className="grid gap-8 lg:grid-cols-2">
+            {/* Wallet Overview */}
             <div className="rounded-3xl border border-white/10 bg-black/40 p-7 shadow-[0_0_50px_rgba(0,0,0,0.55)]">
               <h2 className="text-2xl font-semibold">Wallet Overview</h2>
 
@@ -179,6 +182,7 @@ export default function WalletClient() {
                 <span className="font-semibold text-cyan-300">{fmt(totalValue)} USDT</span>
               </div>
 
+              {/* no red error */}
               {!pricesOk && (
                 <div className="mt-2 text-xs text-white/40">
                   Prices temporarily unavailable — showing “--”.
@@ -204,10 +208,13 @@ export default function WalletClient() {
                             <span className="font-semibold">{r.coin}</span>
                           </div>
                         </td>
+
                         <td className="px-4 py-3 text-right text-white/90">{fmt(r.balance, 6)}</td>
+
                         <td className="px-4 py-3 text-right text-white/90">
                           {r.coin === 'USDT' ? '1.00' : pricesOk && r.price ? fmt(r.price, 4) : '--'}
                         </td>
+
                         <td className="px-4 py-3 text-right font-semibold text-white">
                           {pricesOk ? fmt(r.value, 2) : '0.00'}
                         </td>
@@ -218,6 +225,7 @@ export default function WalletClient() {
               </div>
             </div>
 
+            {/* Convert */}
             <div className="rounded-3xl border border-white/10 bg-black/40 p-7 shadow-[0_0_50px_rgba(0,0,0,0.55)]">
               <h2 className="text-2xl font-semibold">Convert</h2>
               <p className="mt-2 text-sm text-white/60">

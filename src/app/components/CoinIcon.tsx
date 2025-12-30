@@ -1,4 +1,3 @@
-// src/app/components/CoinIcon.tsx
 'use client';
 
 import React from 'react';
@@ -20,58 +19,50 @@ type Props = {
   className?: string;
 };
 
-function getLetter(coin: string) {
-  // Match your request: B for BTC, E for ETH, etc.
-  if (!coin) return '?';
-  return coin[0]?.toUpperCase() ?? '?';
+function pickLetter(coin: string) {
+  const c = (coin || '').toUpperCase();
+  if (!c) return '?';
+  // Use first character by default
+  return c[0];
 }
 
 function ringColor(coin: string) {
-  switch (coin.toUpperCase()) {
-    case 'BTC':
-      return 'border-amber-400/50 text-amber-200';
-    case 'ETH':
-      return 'border-indigo-400/50 text-indigo-200';
-    case 'SOL':
-      return 'border-cyan-400/50 text-cyan-200';
-    case 'XRP':
-      return 'border-slate-400/50 text-slate-200';
-    case 'ADA':
-      return 'border-blue-400/50 text-blue-200';
-    case 'BNB':
-      return 'border-yellow-400/50 text-yellow-200';
-    case 'DOGE':
-      return 'border-orange-400/50 text-orange-200';
-    case 'DOT':
-      return 'border-pink-400/50 text-pink-200';
-    case 'USDT':
-      return 'border-emerald-400/50 text-emerald-200';
-    default:
-      return 'border-white/20 text-white/80';
-  }
+  const c = (coin || '').toUpperCase();
+  // subtle variety, still “on brand”
+  if (c === 'BTC') return 'border-amber-400/70 text-amber-200';
+  if (c === 'ETH') return 'border-slate-300/60 text-slate-100';
+  if (c === 'SOL') return 'border-fuchsia-300/60 text-fuchsia-200';
+  if (c === 'XRP') return 'border-sky-300/60 text-sky-200';
+  if (c === 'ADA') return 'border-indigo-300/60 text-indigo-200';
+  if (c === 'BNB') return 'border-yellow-300/60 text-yellow-200';
+  if (c === 'DOGE') return 'border-orange-300/60 text-orange-200';
+  if (c === 'DOT') return 'border-pink-300/60 text-pink-200';
+  if (c === 'USDT') return 'border-emerald-300/60 text-emerald-200';
+  return 'border-white/25 text-white/80';
 }
 
 export default function CoinIcon({ coin, size = 18, className }: Props) {
-  const letter = getLetter(String(coin));
+  const letter = pickLetter(String(coin));
   const colors = ringColor(String(coin));
 
   return (
     <span
-      aria-hidden="true"
       className={[
         'inline-flex items-center justify-center rounded-full',
         'bg-black/40 border',
-        'shadow-[0_0_14px_rgba(0,255,255,0.10)]',
+        'shadow-[0_0_18px_rgba(0,255,255,0.08)]',
+        'select-none',
         colors,
-        className ?? '',
+        className || '',
       ].join(' ')}
       style={{
         width: size,
         height: size,
-        fontSize: Math.max(10, Math.round(size * 0.55)),
+        fontSize: Math.max(10, Math.floor(size * 0.55)),
         lineHeight: 1,
         fontWeight: 700,
       }}
+      aria-label={`${coin} icon`}
       title={String(coin).toUpperCase()}
     >
       {letter}
