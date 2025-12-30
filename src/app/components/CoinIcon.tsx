@@ -3,57 +3,78 @@
 
 import React from 'react';
 
+type Coin =
+  | 'BTC'
+  | 'ETH'
+  | 'SOL'
+  | 'XRP'
+  | 'ADA'
+  | 'BNB'
+  | 'DOGE'
+  | 'DOT'
+  | 'USDT';
+
 type Props = {
-  coin: string; // e.g. BTC, ETH, SOL, XRP, ADA, BNB, DOGE, DOT, USDT
+  coin: Coin | string;
   size?: number;
   className?: string;
 };
 
-function firstLetter(coin: string) {
-  const c = (coin || '').trim().toUpperCase();
-  if (!c) return '?';
-  // special-case USDT if you want "U" (default is U anyway)
-  return c[0];
+function getLetter(coin: string) {
+  // Match your request: B for BTC, E for ETH, etc.
+  if (!coin) return '?';
+  return coin[0]?.toUpperCase() ?? '?';
 }
 
-// Optional: subtle per-coin ring color (NO images, no network)
-function ringClass(coin: string) {
-  const c = coin.toUpperCase();
-  if (c === 'BTC') return 'ring-amber-400/60 text-amber-200';
-  if (c === 'ETH') return 'ring-indigo-400/60 text-indigo-200';
-  if (c === 'SOL') return 'ring-cyan-400/60 text-cyan-200';
-  if (c === 'XRP') return 'ring-slate-300/50 text-slate-100';
-  if (c === 'ADA') return 'ring-sky-400/60 text-sky-200';
-  if (c === 'BNB') return 'ring-yellow-400/60 text-yellow-200';
-  if (c === 'DOGE') return 'ring-orange-300/60 text-orange-200';
-  if (c === 'DOT') return 'ring-pink-400/60 text-pink-200';
-  if (c === 'USDT') return 'ring-emerald-400/60 text-emerald-200';
-  return 'ring-white/20 text-white/90';
+function ringColor(coin: string) {
+  switch (coin.toUpperCase()) {
+    case 'BTC':
+      return 'border-amber-400/50 text-amber-200';
+    case 'ETH':
+      return 'border-indigo-400/50 text-indigo-200';
+    case 'SOL':
+      return 'border-cyan-400/50 text-cyan-200';
+    case 'XRP':
+      return 'border-slate-400/50 text-slate-200';
+    case 'ADA':
+      return 'border-blue-400/50 text-blue-200';
+    case 'BNB':
+      return 'border-yellow-400/50 text-yellow-200';
+    case 'DOGE':
+      return 'border-orange-400/50 text-orange-200';
+    case 'DOT':
+      return 'border-pink-400/50 text-pink-200';
+    case 'USDT':
+      return 'border-emerald-400/50 text-emerald-200';
+    default:
+      return 'border-white/20 text-white/80';
+  }
 }
 
 export default function CoinIcon({ coin, size = 18, className }: Props) {
-  const letter = firstLetter(coin);
-  const ring = ringClass(coin);
+  const letter = getLetter(String(coin));
+  const colors = ringColor(String(coin));
 
   return (
     <span
+      aria-hidden="true"
       className={[
         'inline-flex items-center justify-center rounded-full',
-        'bg-black/40 ring-1',
-        ring,
-        'select-none',
+        'bg-black/40 border',
+        'shadow-[0_0_14px_rgba(0,255,255,0.10)]',
+        colors,
         className ?? '',
       ].join(' ')}
       style={{
         width: size,
         height: size,
-        fontSize: Math.max(10, Math.floor(size * 0.55)),
+        fontSize: Math.max(10, Math.round(size * 0.55)),
         lineHeight: 1,
+        fontWeight: 700,
       }}
-      aria-label={coin}
-      title={coin}
+      title={String(coin).toUpperCase()}
     >
-      <span className="font-semibold">{letter}</span>
+      {letter}
     </span>
   );
 }

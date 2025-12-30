@@ -1,12 +1,15 @@
+// src/app/page.tsx
 'use client';
 
 import React from 'react';
 import Link from 'next/link';
 
-import BigMarketsMap from './components/BigMarketsMap';
-import HeroKlinePanel from './components/HeroKlinePanel';
 import { useLang, LANG_OPTIONS, tr, type LangCode } from './components/useLang';
 import WalletBalance from './components/WalletBalance';
+
+// OPTIONAL: If you still want the tiles/map section on homepage keep this import + render.
+// If you want it gone too, remove both the import and <BigMarketsMap /> block below.
+import BigMarketsMap from './components/BigMarketsMap';
 
 export default function Home() {
   const { lang, setLang } = useLang();
@@ -39,19 +42,19 @@ export default function Home() {
 
       <div className="mb-8 flex justify-center gap-8 text-white/80">
         <Nav to="#" label={tr('nav.verify', lang)} />
-        <Nav to="/" label={tr('nav.markets', lang)} />
+        <Nav to="/markets" label={tr('nav.markets', lang)} />
         <Nav to="/wallet" label={tr('nav.wallet', lang)} />
         <Nav to="/trade" label={tr('nav.trade', lang)} />
       </div>
 
-      {/* HERO CANDLES */}
-      <HeroKlinePanel lang={lang} />
+      {/* ✅ REMOVED: HeroKlinePanel (the big chart "map") */}
 
       <h1 className="mx-auto mb-2 max-w-5xl text-center text-4xl font-extrabold text-white sm:text-5xl">
         {tr('markets.heading', lang)}
       </h1>
       <p className="mb-10 text-center text-sm text-white/60">{tr('markets.sub', lang)}</p>
 
+      {/* OPTIONAL: keep or remove this section if you still want the homepage map/tiles */}
       <section className="mx-auto max-w-6xl">
         <BigMarketsMap />
       </section>
