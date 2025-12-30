@@ -10,7 +10,7 @@ import Modal from '../components/Modal';
 import RecentTrades, { TradeResult } from '../components/RecentTrades';
 import { useLang, tr } from '../components/useLang';
 import WalletBalance from '../components/WalletBalance';
-import TickerCard from '@/app/components/TickerCard';
+import BigMarketsMap from '../components/BigMarketsMap';
 
 type Direction = 'long' | 'short';
 
@@ -397,12 +397,14 @@ export default function TradePage() {
         <div className="mb-6">
           <div className="mb-2 flex items-center justify-between">
             <div className="text-sm font-semibold text-white">Market</div>
-            <Link href="/" className="text-xs text-white/60 hover:text-white/90">
+            <Link href="/markets" className="text-xs text-white/60 hover:text-white/90">
               View Markets →
             </Link>
           </div>
+
+          {/* ✅ SAME MAP AS MARKETS PAGE */}
           <div className="rounded-2xl border border-white/10 bg-black/30 p-3">
-            <TickerCard symbol={pair.replace('/', '').toUpperCase()} />
+            <BigMarketsMap />
           </div>
         </div>
 
@@ -558,7 +560,8 @@ export default function TradePage() {
           {run && showCountdown ? (
             <div className="text-xs text-white/60">
               Trade running on <span className="text-white">{pairLabel}</span> for{' '}
-              <span className="text-cyan-300">{Math.round(duration)}s</span> — check the countdown modal.
+              <span className="text-cyan-300">{Math.round(duration)}s</span> — check the
+              countdown modal.
             </div>
           ) : resolvingTrade ? (
             <div className="text-xs text-white/60">Resolving trade… please wait.</div>
@@ -592,7 +595,9 @@ export default function TradePage() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-white/60">{tr('confirm.direction', lang)}</div>
+                  <div className="text-[11px] text-white/60">
+                    {tr('confirm.direction', lang)}
+                  </div>
                   <div className="text-sm font-semibold text-white">
                     {pendingTrade.direction === 'long'
                       ? tr('btn.buyLong', lang)
@@ -610,8 +615,12 @@ export default function TradePage() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-white/60">{tr('confirm.duration', lang)}</div>
-                  <div className="text-sm font-semibold text-white">{pendingTrade.duration} sec</div>
+                  <div className="text-[11px] text-white/60">
+                    {tr('confirm.duration', lang)}
+                  </div>
+                  <div className="text-sm font-semibold text-white">
+                    {pendingTrade.duration} sec
+                  </div>
                 </div>
               </div>
             </div>
