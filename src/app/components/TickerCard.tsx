@@ -1,13 +1,12 @@
-// src/app/components/TickerCard.tsx
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CoinIcon from './CoinIcon';
 
 export type TickerCardProps = {
-  symbol: string; // e.g. BTCUSDT
-  pair?: string;  // e.g. BTC / USDT (optional)
-  coin?: string;  // e.g. BTC (optional)
+  symbol: string;
+  pair?: string;
+  coin?: string;
   onClick?: () => void;
 };
 
@@ -21,7 +20,6 @@ function fmt(n: number, d = 2) {
 function deriveCoin(symbol: string) {
   const up = (symbol || '').toUpperCase();
   if (up.endsWith('USDT')) return up.replace('USDT', '');
-  // fallback: first 3-4 chars
   return up.slice(0, 4);
 }
 
@@ -31,9 +29,10 @@ export default function TickerCard({ symbol, pair, coin, onClick }: TickerCardPr
 
   const [price, setPrice] = useState<number | null>(null);
   const [changePct, setChangePct] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [firstLoad, setFirstLoad] = useState(true);
 
-  // lightweight local sparkline based on price (stable)
+  const hadValueRef = useRef(false);
+
   const spark = useMemo(() => {
     const base = price ?? 100;
     return Array.from({ length: 18 }).map((_, i) => {
@@ -47,7 +46,6 @@ export default function TickerCard({ symbol, pair, coin, onClick }: TickerCardPr
 
     async function load() {
       try {
-        setLoading(true);
         const res = await fetch(`/api/price?symbol=${encodeURIComponent(symbol)}`, {
           cache: 'no-store',
         });
@@ -68,24 +66,31 @@ export default function TickerCard({ symbol, pair, coin, onClick }: TickerCardPr
             ? Number(data.data.changePct)
             : null;
 
-        setPrice(Number.isFinite(p as any) ? (p as number) : null);
-        setChangePct(Number.isFinite(cp as any) ? (cp as number) : null);
+        const nextPrice = Number.isFinite(p as any) ? (p as number) : null;
+        const nextPct = Number.isFinite(cp as any) ? (cp as number) : null;
+
+        setPrice((prev) => (prev === nextPrice ? prev : nextPrice));
+        setChangePct((prev) => (prev === nextPct ? prev : nextPct));
+
+        if (nextPrice != null) hadValueRef.current = true;
       } catch {
-        if (!dead) {
+        if (!hadValueRef.current && !dead) {
           setPrice(null);
           setChangePct(null);
         }
       } finally {
-        if (!dead) setLoading(false);
+        if (!dead && firstLoad) setFirstLoad(false);
       }
     }
 
     load();
     const t = setInterval(load, 5000);
+
     return () => {
       dead = true;
       clearInterval(t);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol]);
 
   const pctClass =
@@ -118,12 +123,13 @@ export default function TickerCard({ symbol, pair, coin, onClick }: TickerCardPr
 
   return (
     <button
+      type="button"
       onClick={onClick}
       className="group relative w-full overflow-hidden rounded-3xl border border-white/10 bg-black/45 p-5 text-left shadow-[0_0_30px_rgba(0,255,255,0.08)] transition hover:border-cyan-400/30 hover:bg-black/55"
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <CoinIcon coin={derivedCoin} size={22} />
+          <CoinIcon coin={derivedCoin} size={22} priority />
           <div className="leading-tight">
             <div className="text-base font-semibold text-white">{derivedPair}</div>
             <div className="text-xs text-white/55">{derivedCoin}</div>
@@ -132,10 +138,14 @@ export default function TickerCard({ symbol, pair, coin, onClick }: TickerCardPr
 
         <div className="text-right">
           <div className="text-xs text-white/50">Last</div>
-          <div className="text-base font-semibold text-white">
-            {loading ? '…' : price != null ? fmt(price, price < 10 ? 4 : 2) : '—'}
+          <div className="text-base font-semibold text-white tabular-nums">
+            {firstLoad && price == null
+              ? '…'
+              : price != null
+              ? fmt(price, price < 10 ? 4 : 2)
+              : '—'}
           </div>
-          <div className={`text-xs ${pctClass}`}>
+          <div className={`text-xs ${pctClass} tabular-nums`}>
             {changePct == null ? '—' : `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%`}
           </div>
         </div>
