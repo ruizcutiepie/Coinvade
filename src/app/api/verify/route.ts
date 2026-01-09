@@ -16,8 +16,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Missing required fields.' }, { status: 400 });
     }
 
-    // TODO: Save to DB if/when you add a KYC table.
-    // For now: accept submission (demo functional flow).
+    // Demo accept (extend later to DB)
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: false, error: 'Invalid request.' }, { status: 400 });
