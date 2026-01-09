@@ -8,11 +8,7 @@ import { usePathname } from 'next/navigation';
 type AppShellProps = {
   children: React.ReactNode;
   title?: string;
-
-  /** Optional top-right content (ex: <WalletBalance />) */
   topRight?: React.ReactNode;
-
-  /** If you ever want to hide bottom nav on a page (rare) */
   showMobileNav?: boolean;
 };
 
@@ -26,7 +22,6 @@ export default function AppShell({
 
   return (
     <main className="min-h-screen px-6 pb-24 pt-6 text-white">
-      {/* top bar */}
       <div className="mb-6 flex items-center justify-between gap-4">
         <div className="text-lg tracking-wide text-[var(--neon)]">COINVADE</div>
 
@@ -36,29 +31,26 @@ export default function AppShell({
         </div>
       </div>
 
-      {/* desktop / tablet nav */}
       <div className="mb-6 flex flex-wrap items-center justify-center gap-3 text-sm text-white/80">
         <NavItem to="/" label="Home" active={pathname === '/'} />
         <NavItem to="/trade" label="Trade" active={pathname?.startsWith('/trade') ?? false} />
-        <NavItem to="/wallet" label="Wallet" active={pathname?.startsWith('/wallet') ?? false} />
         <NavItem to="/verify" label="Verify" active={pathname?.startsWith('/verify') ?? false} />
-        <NavItem to="/support" label="C.S" active={pathname?.startsWith('/support') ?? false} />
+        <NavItem to="/wallet" label="Wallet" active={pathname?.startsWith('/wallet') ?? false} />
+        <NavItem to="/support" label="CS" active={pathname?.startsWith('/support') ?? false} />
         <NavItem to="/settings" label="Settings" active={pathname?.startsWith('/settings') ?? false} />
       </div>
 
-      {/* page body */}
       <div className="mx-auto max-w-7xl">{children}</div>
 
-      {/* mobile bottom nav */}
       {showMobileNav && (
         <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-black/70 backdrop-blur">
           <div className="mx-auto max-w-7xl px-3 py-3 text-[11px]">
             <div className="grid grid-cols-6 gap-2">
               <BottomNavItem to="/" label="Home" active={pathname === '/'} />
               <BottomNavItem to="/trade" label="Trade" active={pathname?.startsWith('/trade') ?? false} />
-              <BottomNavItem to="/wallet" label="Wallet" active={pathname?.startsWith('/wallet') ?? false} />
               <BottomNavItem to="/verify" label="Verify" active={pathname?.startsWith('/verify') ?? false} />
-              <BottomNavItem to="/support" label="C.S" active={pathname?.startsWith('/support') ?? false} />
+              <BottomNavItem to="/wallet" label="Wallet" active={pathname?.startsWith('/wallet') ?? false} />
+              <BottomNavItem to="/support" label="CS" active={pathname?.startsWith('/support') ?? false} />
               <BottomNavItem to="/settings" label="Settings" active={pathname?.startsWith('/settings') ?? false} />
             </div>
           </div>

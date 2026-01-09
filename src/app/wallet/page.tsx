@@ -2,10 +2,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-
 import AppShell from '../components/AppShell';
-import CoinIcon from '../components/CoinIcon';
-
 import useLocalNumber from '../components/useLocalNumber';
 import useLocalJson from '../components/useLocalJson';
 import { useLang, tr } from '../components/useLang';
@@ -62,7 +59,7 @@ type DepositOption = {
   coin: 'BTC' | 'ETH' | 'USDT' | 'USDC';
   networkLabel: string;
   address: string;
-  qr: string; // path in /public
+  qr: string;
   description: string;
 };
 
@@ -155,6 +152,7 @@ export default function WalletPage() {
     USDT: 1,
     USDC: 1,
   });
+
   const [priceLoading, setPriceLoading] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
 
@@ -165,44 +163,34 @@ export default function WalletPage() {
 
   const [tab, setTab] = useState<Tab>('overview');
 
-  const [selectedDepositId, setSelectedDepositId] = useState<string>(
-    DEPOSIT_OPTIONS[0]?.id
-  );
-
+  const [selectedDepositId, setSelectedDepositId] = useState<string>(DEPOSIT_OPTIONS[0]?.id);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
 
-  const [withdrawChannelId, setWithdrawChannelId] = useState<string>(
-    WITHDRAW_CHANNELS[0].id
-  );
+  const [withdrawChannelId, setWithdrawChannelId] = useState<string>(WITHDRAW_CHANNELS[0].id);
   const [withdrawAddress, setWithdrawAddress] = useState('');
   const [withdrawAmountStr, setWithdrawAmountStr] = useState('');
   const [withdrawNote, setWithdrawNote] = useState('');
   const [withdrawLoading, setWithdrawLoading] = useState(false);
 
+  // Load real USDT balance from prisma-backed endpoint
   useEffect(() => {
     let cancelled = false;
 
     async function loadUSDTBalance() {
       try {
         const res = await fetch('/api/wallet', { cache: 'no-store' });
-
         if (res.status === 401) {
           if (!cancelled) setBalance(0);
           return;
         }
-
         const j = await res.json();
         const next = Number(j?.balance ?? 0);
-
         if (!cancelled) {
           const safe = Number.isFinite(next) ? next : 0;
           setBalance(safe);
-
           if (typeof window !== 'undefined') {
             window.dispatchEvent(
-              new CustomEvent('coinvade-wallet-updated', {
-                detail: { balance: safe },
-              })
+              new CustomEvent('coinvade-wallet-updated', { detail: { balance: safe } })
             );
           }
         }
@@ -218,38 +206,36 @@ export default function WalletPage() {
   }, [setBalance]);
 
   async function loadPrices() {
+    setPriceLoading(true);
+    setPriceError(null);
+
     try {
-      setPriceLoading(true);
-      setPriceError(null);
+      // ✅ Use bulk endpoint (stable)
+      const res = await fetch('/api/prices', { cache: 'no-store' });
+      const j = await res.json();
 
-      const coinsToFetch: Coin[] = [
-        'BTC',
-        'ETH',
-        'SOL',
-        'XRP',
-        'ADA',
-        'BNB',
-        'DOGE',
-        'DOT',
-      ];
+      if (!res.ok || !j?.ok || !j?.prices) {
+        throw new Error(j?.error || 'Failed to load prices');
+      }
 
-      const results = await Promise.all(
-        coinsToFetch.map(async (c) => {
-          const res = await fetch(`/api/price?symbol=${c}USDT`, { cache: 'no-store' });
-          const data = await res.json();
-          if (!res.ok || !data?.price) throw new Error(`Failed to fetch ${c} price`);
-          return { coin: c, price: Number(data.price) };
-        })
-      );
+      const p = j.prices as Record<string, number>;
 
-      setPrices((prev) => {
-        const next: PriceMap = { ...prev, USDT: 1, USDC: 1 };
-        for (const r of results) next[r.coin] = r.price;
-        return next;
-      });
-    } catch (e) {
-      console.error(e);
-      setPriceError('Failed to load prices. Conversion may be unavailable.');
+      setPrices((prev) => ({
+        ...prev,
+        BTC: Number(p.BTC ?? prev.BTC ?? 0),
+        ETH: Number(p.ETH ?? prev.ETH ?? 0),
+        SOL: Number(p.SOL ?? prev.SOL ?? 0),
+        XRP: Number(p.XRP ?? prev.XRP ?? 0),
+        ADA: Number(p.ADA ?? prev.ADA ?? 0),
+        BNB: Number(p.BNB ?? prev.BNB ?? 0),
+        DOGE: Number(p.DOGE ?? prev.DOGE ?? 0),
+        DOT: Number(p.DOT ?? prev.DOT ?? 0),
+        USDT: 1,
+        USDC: 1,
+      }));
+    } catch (e: any) {
+      console.error('[wallet] price load error:', e);
+      setPriceError('Prices temporarily unavailable. Try again in a moment.');
     } finally {
       setPriceLoading(false);
     }
@@ -257,8 +243,9 @@ export default function WalletPage() {
 
   useEffect(() => {
     loadPrices();
-    const id = setInterval(loadPrices, 20000);
+    const id = setInterval(loadPrices, 20_000);
     return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function getCoinBalance(coin: Coin): number {
@@ -272,7 +259,6 @@ export default function WalletPage() {
     if (coin === 'USDT') {
       const next = Math.max(0, value);
       setBalance(next);
-
       if (typeof window !== 'undefined') {
         window.dispatchEvent(
           new CustomEvent('coinvade-wallet-updated', { detail: { balance: next } })
@@ -281,10 +267,7 @@ export default function WalletPage() {
       return;
     }
 
-    setWallet((prev) => ({
-      ...prev,
-      [coin]: Math.max(0, value),
-    }));
+    setWallet((prev) => ({ ...prev, [coin]: Math.max(0, value) }));
   }
 
   const totalValueUSDT = useMemo(() => {
@@ -445,7 +428,17 @@ export default function WalletPage() {
             </div>
 
             {priceLoading && <div className="mb-3 text-xs text-white/50">Loading prices…</div>}
-            {priceError && <div className="mb-3 text-xs text-rose-300">{priceError}</div>}
+            {priceError && (
+              <div className="mb-3 text-xs text-white/50">
+                {priceError}{' '}
+                <button
+                  onClick={loadPrices}
+                  className="ml-2 rounded-lg border border-white/20 bg-white/5 px-2 py-1 text-[11px] hover:border-white/40"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
 
             <div className="mt-2 overflow-hidden rounded-xl border border-white/10 bg-black/60">
               <table className="w-full text-sm">
@@ -469,20 +462,28 @@ export default function WalletPage() {
                         className="border-t border-white/5 odd:bg-white/0 even:bg-white/[0.02]"
                       >
                         <td className="px-4 py-2 text-left font-medium">
-                          <div className="flex items-center">
-                            <CoinIcon coin={coin} size={20} className="mr-2" />
+                          <div className="flex items-center gap-2">
+                            {/* your existing CoinIcon component handles /public/coins */}
+                            {/* NOTE: keep using your shared CoinIcon component in other files too */}
+                            <span className="inline-flex">
+                              {/* lazy: import isn’t required here since you already used the image approach elsewhere */}
+                              <img
+                                src={`/coins/${coin.toLowerCase()}.png`}
+                                alt={coin}
+                                className="h-5 w-5 rounded-full border border-white/10 bg-black/40 object-contain"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            </span>
                             <span>{coin}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-2 text-right">
-                          {fmt(bal, coin === 'USDT' ? 2 : 6)}
-                        </td>
+                        <td className="px-4 py-2 text-right">{fmt(bal, coin === 'USDT' ? 2 : 6)}</td>
                         <td className="px-4 py-2 text-right">
                           {coin === 'USDT' ? '1.00' : price ? fmt(price, 4) : '--'}
                         </td>
-                        <td className="px-4 py-2 text-right">
-                          {bal === 0 ? '0.00' : fmt(value, 2)}
-                        </td>
+                        <td className="px-4 py-2 text-right">{bal === 0 ? '0.00' : fmt(value, 2)}</td>
                       </tr>
                     );
                   })}
@@ -589,7 +590,14 @@ export default function WalletPage() {
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <CoinIcon coin={opt.coin} size={18} />
+                    <img
+                      src={`/coins/${opt.coin.toLowerCase()}.png`}
+                      alt={opt.coin}
+                      className="h-5 w-5 rounded-full border border-white/10 bg-black/40 object-contain"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
                     <span className="font-medium">{opt.label}</span>
                   </span>
                   <span className="text-white/40">{'>'}</span>
@@ -647,10 +655,7 @@ export default function WalletPage() {
                         type="file"
                         accept="image/*,.pdf"
                         className="hidden"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0] ?? null;
-                          setReceiptFile(f);
-                        }}
+                        onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
                       />
                       Choose file
                     </label>
