@@ -12,6 +12,15 @@ type AppShellProps = {
   showMobileNav?: boolean;
 };
 
+const NAV = [
+  { to: '/', label: 'Home' },
+  { to: '/trade', label: 'Trade' },
+  { to: '/verify', label: 'Verify' },
+  { to: '/wallet', label: 'Wallet' },
+  { to: '/support', label: 'CS' },
+  { to: '/settings', label: 'Settings' },
+];
+
 export default function AppShell({
   children,
   title,
@@ -20,8 +29,14 @@ export default function AppShell({
 }: AppShellProps) {
   const pathname = usePathname();
 
+  const isActive = (to: string) => {
+    if (to === '/') return pathname === '/';
+    return pathname?.startsWith(to) ?? false;
+  };
+
   return (
     <main className="min-h-screen px-6 pb-24 pt-6 text-white">
+      {/* top bar */}
       <div className="mb-6 flex items-center justify-between gap-4">
         <div className="text-lg tracking-wide text-[var(--neon)]">COINVADE</div>
 
@@ -31,27 +46,29 @@ export default function AppShell({
         </div>
       </div>
 
+      {/* desktop / tablet nav */}
       <div className="mb-6 flex flex-wrap items-center justify-center gap-3 text-sm text-white/80">
-        <NavItem to="/" label="Home" active={pathname === '/'} />
-        <NavItem to="/trade" label="Trade" active={pathname?.startsWith('/trade') ?? false} />
-        <NavItem to="/verify" label="Verify" active={pathname?.startsWith('/verify') ?? false} />
-        <NavItem to="/wallet" label="Wallet" active={pathname?.startsWith('/wallet') ?? false} />
-        <NavItem to="/support" label="CS" active={pathname?.startsWith('/support') ?? false} />
-        <NavItem to="/settings" label="Settings" active={pathname?.startsWith('/settings') ?? false} />
+        {NAV.map((item) => (
+          <NavItem key={item.to} to={item.to} label={item.label} active={isActive(item.to)} />
+        ))}
       </div>
 
+      {/* page body */}
       <div className="mx-auto max-w-7xl">{children}</div>
 
+      {/* mobile bottom nav */}
       {showMobileNav && (
         <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-black/70 backdrop-blur">
           <div className="mx-auto max-w-7xl px-3 py-3 text-[11px]">
             <div className="grid grid-cols-6 gap-2">
-              <BottomNavItem to="/" label="Home" active={pathname === '/'} />
-              <BottomNavItem to="/trade" label="Trade" active={pathname?.startsWith('/trade') ?? false} />
-              <BottomNavItem to="/verify" label="Verify" active={pathname?.startsWith('/verify') ?? false} />
-              <BottomNavItem to="/wallet" label="Wallet" active={pathname?.startsWith('/wallet') ?? false} />
-              <BottomNavItem to="/support" label="CS" active={pathname?.startsWith('/support') ?? false} />
-              <BottomNavItem to="/settings" label="Settings" active={pathname?.startsWith('/settings') ?? false} />
+              {NAV.map((item) => (
+                <BottomNavItem
+                  key={item.to}
+                  to={item.to}
+                  label={item.label}
+                  active={isActive(item.to)}
+                />
+              ))}
             </div>
           </div>
         </div>
