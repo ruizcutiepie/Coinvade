@@ -1,7 +1,9 @@
+// src/app/page.tsx
 'use client';
 
 import React from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 import BigMarketsMap from './components/BigMarketsMap';
 import { useLang, LANG_OPTIONS, tr, type LangCode } from './components/useLang';
@@ -17,7 +19,7 @@ export default function Home() {
         <div className="text-lg tracking-wide text-[var(--neon)]">COINVADE</div>
 
         <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-2 rounded-2xl border border-white/15 bg-black/40 px-3 py-2 text-xs text-white/70">
+          <div className="hidden items-center gap-2 rounded-2xl border border-white/15 bg-black/40 px-3 py-2 text-xs text-white/70 sm:flex">
             <span className="text-lg">{currentLang.flag}</span>
             <select
               value={lang}
@@ -36,14 +38,12 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="mb-8 flex justify-center gap-8 text-white/80">
-        <Nav to="#" label={tr('nav.verify', lang)} />
-        <Nav to="/" label={tr('nav.markets', lang)} />
+      <div className="mb-8 flex flex-wrap justify-center gap-3 text-white/80">
+        <Nav to="/verify" label={tr('nav.verify', lang)} />
+        <Nav to="/markets" label={tr('nav.markets', lang)} />
         <Nav to="/wallet" label={tr('nav.wallet', lang)} />
         <Nav to="/trade" label={tr('nav.trade', lang)} />
       </div>
-
-      {/* ✅ HERO CHART REMOVED */}
 
       <h1 className="mx-auto mb-2 max-w-5xl text-center text-4xl font-extrabold text-white sm:text-5xl">
         {tr('markets.heading', lang)}
@@ -58,11 +58,20 @@ export default function Home() {
 }
 
 function Nav({ to, label }: { to: string; label: string }) {
-  const inner = (
-    <span className="inline-block rounded-xl border border-white/10 px-3 py-1 text-white/80 hover:text-white">
-      {label}
-    </span>
-  );
+  const pathname = usePathname();
+  const active = pathname === to || (to !== '/' && pathname?.startsWith(to));
 
-  return to.startsWith('/') ? <Link href={to}>{inner}</Link> : <a href={to}>{inner}</a>;
+  return (
+    <Link href={to}>
+      <span
+        className={`inline-block rounded-xl border px-3 py-1 text-white/80 transition ${
+          active
+            ? 'border-cyan-400/60 bg-cyan-500/15 text-cyan-100 shadow-[0_0_14px_rgba(0,224,255,.35)]'
+            : 'border-white/10 hover:border-white/40 hover:text-white'
+        }`}
+      >
+        {label}
+      </span>
+    </Link>
+  );
 }

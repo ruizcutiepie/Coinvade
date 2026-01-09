@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import AppShell from '../components/AppShell';
+import CoinIcon from '../components/CoinIcon';
 
 import useLocalNumber from '../components/useLocalNumber';
 import useLocalJson from '../components/useLocalJson';
@@ -53,10 +54,7 @@ const SUPPORTED_COINS: Coin[] = [
   'DOGE',
   'DOT',
   'USDT',
-  // NOTE: USDC is for Deposit UI right now; not included in holdings table by default
 ];
-
-/* -------------------- DEPOSIT CONFIG -------------------- */
 
 type DepositOption = {
   id: string;
@@ -96,7 +94,6 @@ const DEPOSIT_OPTIONS: DepositOption[] = [
     qr: '/deposit/usdttrc20.jpeg',
     description: 'Send only USDT on TRC20 (TRON) to this address.',
   },
-  // ✅ USDC deposit option (replace with your real values)
   {
     id: 'USDC-ERC20',
     label: 'USDC-ERC20',
@@ -108,8 +105,6 @@ const DEPOSIT_OPTIONS: DepositOption[] = [
   },
 ];
 
-/* -------------------- WITHDRAW CONFIG -------------------- */
-
 type WithdrawChannel = {
   id: string;
   label: string;
@@ -118,57 +113,22 @@ type WithdrawChannel = {
 };
 
 const WITHDRAW_CHANNELS: WithdrawChannel[] = [
-  {
-    id: 'BTC-Bitcoin',
-    label: 'BTC-Bitcoin',
-    coin: 'BTC',
-    networkLabel: 'Bitcoin mainnet',
-  },
-  {
-    id: 'ETH-ERC20',
-    label: 'ETH-ERC20',
-    coin: 'ETH',
-    networkLabel: 'Ethereum (ERC20)',
-  },
-  {
-    id: 'USDT-TRC20',
-    label: 'USDT-TRC20',
-    coin: 'USDT',
-    networkLabel: 'TRON (TRC20)',
-  },
+  { id: 'BTC-Bitcoin', label: 'BTC-Bitcoin', coin: 'BTC', networkLabel: 'Bitcoin mainnet' },
+  { id: 'ETH-ERC20', label: 'ETH-ERC20', coin: 'ETH', networkLabel: 'Ethereum (ERC20)' },
+  { id: 'USDT-TRC20', label: 'USDT-TRC20', coin: 'USDT', networkLabel: 'TRON (TRC20)' },
 ];
 
 const PARTNER_CHANNELS = [
   { name: 'BANXA', url: '#', caption: 'Official cooperative recharge channel' },
-  {
-    name: 'Binance',
-    url: 'https://www.binance.com',
-    caption: 'Official cooperative recharge channel',
-  },
-  {
-    name: 'coinbase',
-    url: 'https://www.coinbase.com',
-    caption: 'Official cooperative recharge channel',
-  },
-  {
-    name: 'crypto.com',
-    url: 'https://crypto.com',
-    caption: 'Official cooperative recharge channel',
-  },
-  {
-    name: 'Kraken',
-    url: 'https://www.kraken.com',
-    caption: 'Official cooperative recharge channel',
-  },
+  { name: 'Binance', url: 'https://www.binance.com', caption: 'Official cooperative recharge channel' },
+  { name: 'coinbase', url: 'https://www.coinbase.com', caption: 'Official cooperative recharge channel' },
+  { name: 'crypto.com', url: 'https://crypto.com', caption: 'Official cooperative recharge channel' },
+  { name: 'Kraken', url: 'https://www.kraken.com', caption: 'Official cooperative recharge channel' },
 ];
 
-/* -------------------- MAIN PAGE -------------------- */
-
 export default function WalletPage() {
-  // ✅ IMPORTANT: no demo default. Start from 0.
   const [balance, setBalance] = useLocalNumber('coinvade.balance', 0);
 
-  // ✅ IMPORTANT: no seeded demo holdings. Start all at 0.
   const [wallet, setWallet] = useLocalJson<WalletState>('coinvade.wallet', {
     BTC: 0,
     ETH: 0,
@@ -183,7 +143,6 @@ export default function WalletPage() {
 
   const { lang } = useLang();
 
-  // Live prices (in USDT)
   const [prices, setPrices] = useState<PriceMap>({
     BTC: 0,
     ETH: 0,
@@ -199,24 +158,19 @@ export default function WalletPage() {
   const [priceLoading, setPriceLoading] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
 
-  // Convert form
   const [fromCoin, setFromCoin] = useState<Coin>('BTC');
   const [toCoin, setToCoin] = useState<Coin>('USDT');
   const [amountStr, setAmountStr] = useState('');
   const [convertLoading, setConvertLoading] = useState(false);
 
-  // Tabs
   const [tab, setTab] = useState<Tab>('overview');
 
-  // Deposit selection
   const [selectedDepositId, setSelectedDepositId] = useState<string>(
     DEPOSIT_OPTIONS[0]?.id
   );
 
-  // ✅ Receipt upload UI (demo-only)
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
 
-  // Withdraw form
   const [withdrawChannelId, setWithdrawChannelId] = useState<string>(
     WITHDRAW_CHANNELS[0].id
   );
@@ -225,7 +179,6 @@ export default function WalletPage() {
   const [withdrawNote, setWithdrawNote] = useState('');
   const [withdrawLoading, setWithdrawLoading] = useState(false);
 
-  /* -------------------- LOAD REAL USDT BALANCE (PRISMA) -------------------- */
   useEffect(() => {
     let cancelled = false;
 
@@ -233,7 +186,6 @@ export default function WalletPage() {
       try {
         const res = await fetch('/api/wallet', { cache: 'no-store' });
 
-        // Not logged in: keep everything at 0
         if (res.status === 401) {
           if (!cancelled) setBalance(0);
           return;
@@ -265,8 +217,6 @@ export default function WalletPage() {
     };
   }, [setBalance]);
 
-  /* -------- Load prices via /api/price -------- */
-
   async function loadPrices() {
     try {
       setPriceLoading(true);
@@ -285,13 +235,9 @@ export default function WalletPage() {
 
       const results = await Promise.all(
         coinsToFetch.map(async (c) => {
-          const res = await fetch(`/api/price?symbol=${c}USDT`, {
-            cache: 'no-store',
-          });
+          const res = await fetch(`/api/price?symbol=${c}USDT`, { cache: 'no-store' });
           const data = await res.json();
-          if (!res.ok || !data?.price) {
-            throw new Error(`Failed to fetch ${c} price`);
-          }
+          if (!res.ok || !data?.price) throw new Error(`Failed to fetch ${c} price`);
           return { coin: c, price: Number(data.price) };
         })
       );
@@ -314,8 +260,6 @@ export default function WalletPage() {
     const id = setInterval(loadPrices, 20000);
     return () => clearInterval(id);
   }, []);
-
-  /* -------- Balance helpers -------- */
 
   function getCoinBalance(coin: Coin): number {
     if (coin === 'USDT') return balance;
@@ -355,8 +299,6 @@ export default function WalletPage() {
     total += (wallet.DOT ?? 0) * (prices.DOT || 0);
     return total;
   }, [balance, wallet, prices]);
-
-  /* -------- Conversion logic -------- */
 
   async function handleConvert(e: React.FormEvent) {
     e.preventDefault();
@@ -402,8 +344,6 @@ export default function WalletPage() {
       setConvertLoading(false);
     }
   }
-
-  /* -------- Withdraw logic -------- */
 
   async function handleWithdraw(e: React.FormEvent) {
     e.preventDefault();
@@ -467,27 +407,8 @@ export default function WalletPage() {
     }
   }
 
-  /* -------- Icon helper -------- */
-
-  function CoinIcon({ coin }: { coin: Coin }) {
-    const file = `/icons/${coin.toLowerCase()}.svg`;
-    return (
-      <img
-        src={file}
-        alt={coin}
-        className="mr-2 h-5 w-5 rounded-full border border-white/10 bg-black/40 object-contain"
-        onError={(e) => {
-          (e.currentTarget as HTMLImageElement).src = '/icons/coin.svg';
-        }}
-      />
-    );
-  }
-
-  /* -------------------- UI -------------------- */
-
   return (
     <AppShell title="Wallet">
-      {/* ✅ Balance summary only on Overview tab */}
       {tab === 'overview' && (
         <div className="mb-5 flex justify-end">
           <div className="rounded-2xl border border-white/15 bg-black/30 px-4 py-2 text-sm">
@@ -497,7 +418,6 @@ export default function WalletPage() {
         </div>
       )}
 
-      {/* internal tabs */}
       <div className="mb-6 flex justify-center gap-3 text-xs">
         {(['overview', 'deposit', 'withdraw'] as Tab[]).map((t) => (
           <button
@@ -514,10 +434,8 @@ export default function WalletPage() {
         ))}
       </div>
 
-      {/* MAIN CONTENT BY TAB */}
       {tab === 'overview' && (
         <section className="mx-auto flex max-w-6xl flex-col gap-6 lg:flex-row">
-          {/* Holdings */}
           <div className="flex-1 rounded-2xl border border-white/10 bg-black/40 p-5 shadow-[0_0_40px_rgba(0,0,0,.6)]">
             <h2 className="mb-4 text-lg font-semibold">Wallet Overview</h2>
 
@@ -552,7 +470,7 @@ export default function WalletPage() {
                       >
                         <td className="px-4 py-2 text-left font-medium">
                           <div className="flex items-center">
-                            <CoinIcon coin={coin} />
+                            <CoinIcon coin={coin} size={20} className="mr-2" />
                             <span>{coin}</span>
                           </div>
                         </td>
@@ -573,7 +491,6 @@ export default function WalletPage() {
             </div>
           </div>
 
-          {/* Convert */}
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-black/40 p-5 shadow-[0_0_40px_rgba(0,0,0,.6)]">
             <h2 className="mb-4 text-lg font-semibold">Convert</h2>
             <p className="mb-4 text-xs text-white/60">
@@ -581,7 +498,6 @@ export default function WalletPage() {
             </p>
 
             <form onSubmit={handleConvert} className="space-y-4 text-sm">
-              {/* From */}
               <div>
                 <label className="mb-1 block text-xs text-white/60">From</label>
                 <div className="flex gap-2">
@@ -614,7 +530,6 @@ export default function WalletPage() {
                 </div>
               </div>
 
-              {/* To */}
               <div>
                 <label className="mb-1 block text-xs text-white/60">To</label>
                 <select
@@ -630,7 +545,6 @@ export default function WalletPage() {
                 </select>
               </div>
 
-              {/* Rate preview */}
               {fromCoin !== toCoin && prices[fromCoin] && prices[toCoin] && (
                 <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3 text-xs text-cyan-100">
                   1 {fromCoin} ≈{' '}
@@ -675,7 +589,7 @@ export default function WalletPage() {
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <CoinIcon coin={opt.coin as any} />
+                    <CoinIcon coin={opt.coin} size={18} />
                     <span className="font-medium">{opt.label}</span>
                   </span>
                   <span className="text-white/40">{'>'}</span>
@@ -724,7 +638,6 @@ export default function WalletPage() {
                     </div>
                   </div>
 
-                  {/* ✅ Receipt upload (UI realism) */}
                   <div className="rounded-xl border border-white/10 bg-black/50 p-3">
                     <div className="mb-2 text-[11px] text-white/60">
                       Upload payment receipt (optional)

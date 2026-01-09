@@ -10,7 +10,6 @@ import Modal from '../components/Modal';
 import RecentTrades, { TradeResult } from '../components/RecentTrades';
 import { useLang, tr } from '../components/useLang';
 import WalletBalance from '../components/WalletBalance';
-import BigMarketsMap from '../components/BigMarketsMap';
 
 type Direction = 'long' | 'short';
 
@@ -151,7 +150,6 @@ export default function TradePage() {
       }
 
       const items = Array.isArray(j.items) ? (j.items as TradeResult[]) : [];
-      // Ensure direction is normalized
       const normalized = items.map((t: any) => ({
         ...t,
         direction:
@@ -172,7 +170,6 @@ export default function TradePage() {
   }
 
   useEffect(() => {
-    // wallet
     if (typeof window !== 'undefined') {
       const stored = window.localStorage.getItem('coinvade.walletBalance');
       if (stored != null && !Number.isNaN(Number(stored))) {
@@ -188,7 +185,6 @@ export default function TradePage() {
       loadWallet();
     }
 
-    // trades (db)
     loadTrades();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -295,7 +291,6 @@ export default function TradePage() {
     resolveGuardRef.current = false;
   }
 
-  // Countdown hits 0 -> resolve backend -> return ResolveResult for CountdownTrade UI
   async function onTradeFinish(res: FinishPayload): Promise<ResolveResult | void> {
     if (resolveGuardRef.current) return;
     resolveGuardRef.current = true;
@@ -334,14 +329,10 @@ export default function TradePage() {
       const exitPrice =
         Number(serverTrade.exitPrice ?? serverTrade.closePrice ?? 0) || 0;
 
-      // Stake deducted on OPEN.
-      // Net delta: win => +0.8*stake, lose => -stake, tie => 0
       let delta = 0;
       if (won === true) delta = stake * 0.8;
       else if (won === false) delta = -stake;
-      else delta = 0;
 
-      // Update UI trades immediately (then also refresh from DB)
       const record: TradeResult = {
         id: String(serverTrade.id),
         ts: Date.now(),
@@ -373,9 +364,7 @@ export default function TradePage() {
         loadWallet();
       }
 
-      // Hard refresh list so DB is source-of-truth
       loadTrades();
-
       return { won, delta, exitPrice };
     } catch (err: any) {
       console.error('[trade] onTradeFinish error', err);
@@ -393,7 +382,7 @@ export default function TradePage() {
       </div>
 
       <section className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-black/40 p-5 shadow-[0_0_40px_rgba(0,0,0,.6)]">
-        {/* Market */}
+        {/* Market (NO BigMarketsMap here) */}
         <div className="mb-6">
           <div className="mb-2 flex items-center justify-between">
             <div className="text-sm font-semibold text-white">Market</div>
@@ -402,9 +391,8 @@ export default function TradePage() {
             </Link>
           </div>
 
-          {/* ✅ SAME MAP AS MARKETS PAGE */}
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-3">
-            <BigMarketsMap />
+          <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-white/60">
+            Markets Overview appears on the Markets page only (not inside Trade).
           </div>
         </div>
 
