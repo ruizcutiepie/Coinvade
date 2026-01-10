@@ -3,6 +3,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import AppShell from '../components/AppShell';
+import CoinIcon from '../components/CoinIcon';
 import useLocalNumber from '../components/useLocalNumber';
 import useLocalJson from '../components/useLocalJson';
 import { useLang, tr } from '../components/useLang';
@@ -53,6 +54,8 @@ const SUPPORTED_COINS: Coin[] = [
   'USDT',
 ];
 
+/* -------------------- DEPOSIT CONFIG -------------------- */
+
 type DepositOption = {
   id: string;
   label: string;
@@ -101,6 +104,8 @@ const DEPOSIT_OPTIONS: DepositOption[] = [
     description: 'Send only USDC via Ethereum ERC20 network.',
   },
 ];
+
+/* -------------------- WITHDRAW CONFIG -------------------- */
 
 type WithdrawChannel = {
   id: string;
@@ -172,7 +177,7 @@ export default function WalletPage() {
   const [withdrawNote, setWithdrawNote] = useState('');
   const [withdrawLoading, setWithdrawLoading] = useState(false);
 
-  // Load real USDT balance from prisma-backed endpoint
+  /* -------------------- LOAD REAL USDT BALANCE -------------------- */
   useEffect(() => {
     let cancelled = false;
 
@@ -185,6 +190,7 @@ export default function WalletPage() {
         }
         const j = await res.json();
         const next = Number(j?.balance ?? 0);
+
         if (!cancelled) {
           const safe = Number.isFinite(next) ? next : 0;
           setBalance(safe);
@@ -205,39 +211,57 @@ export default function WalletPage() {
     };
   }, [setBalance]);
 
+  /* -------------------- LOAD PRICES (FIXED) -------------------- */
   async function loadPrices() {
+    let cancelled = false;
+
     setPriceLoading(true);
     setPriceError(null);
 
     try {
-      // ✅ Use bulk endpoint (stable)
-      const res = await fetch('/api/prices', { cache: 'no-store' });
-      const j = await res.json();
+      // ✅ Use SAME endpoint as TickerCard: /api/price?symbol=BTCUSDT
+      const coinsToFetch: Coin[] = [
+        'BTC',
+        'ETH',
+        'SOL',
+        'XRP',
+        'ADA',
+        'BNB',
+        'DOGE',
+        'DOT',
+      ];
 
-      if (!res.ok || !j?.ok || !j?.prices) {
-        throw new Error(j?.error || 'Failed to load prices');
-      }
+      const results = await Promise.all(
+        coinsToFetch.map(async (c) => {
+          const res = await fetch(`/api/price?symbol=${c}USDT`, { cache: 'no-store' });
+          const data = await res.json();
 
-      const p = j.prices as Record<string, number>;
+          const price =
+            Number(data?.price) ||
+            Number(data?.lastPrice) ||
+            Number(data?.data?.price) ||
+            0;
 
-      setPrices((prev) => ({
-        ...prev,
-        BTC: Number(p.BTC ?? prev.BTC ?? 0),
-        ETH: Number(p.ETH ?? prev.ETH ?? 0),
-        SOL: Number(p.SOL ?? prev.SOL ?? 0),
-        XRP: Number(p.XRP ?? prev.XRP ?? 0),
-        ADA: Number(p.ADA ?? prev.ADA ?? 0),
-        BNB: Number(p.BNB ?? prev.BNB ?? 0),
-        DOGE: Number(p.DOGE ?? prev.DOGE ?? 0),
-        DOT: Number(p.DOT ?? prev.DOT ?? 0),
-        USDT: 1,
-        USDC: 1,
-      }));
+          if (!res.ok || !price) {
+            throw new Error(`Failed to fetch ${c} price`);
+          }
+
+          return { coin: c, price: Number(price) };
+        })
+      );
+
+      if (cancelled) return;
+
+      setPrices((prev) => {
+        const next: PriceMap = { ...prev, USDT: 1, USDC: 1 };
+        for (const r of results) next[r.coin] = r.price;
+        return next;
+      });
     } catch (e: any) {
       console.error('[wallet] price load error:', e);
       setPriceError('Prices temporarily unavailable. Try again in a moment.');
     } finally {
-      setPriceLoading(false);
+      if (!cancelled) setPriceLoading(false);
     }
   }
 
@@ -248,6 +272,7 @@ export default function WalletPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* -------------------- BALANCE HELPERS -------------------- */
   function getCoinBalance(coin: Coin): number {
     if (coin === 'USDT') return balance;
     return (wallet as any)[coin] ?? 0;
@@ -283,6 +308,7 @@ export default function WalletPage() {
     return total;
   }, [balance, wallet, prices]);
 
+  /* -------------------- CONVERT -------------------- */
   async function handleConvert(e: React.FormEvent) {
     e.preventDefault();
     const raw = amountStr.trim();
@@ -328,6 +354,7 @@ export default function WalletPage() {
     }
   }
 
+  /* -------------------- WITHDRAW -------------------- */
   async function handleWithdraw(e: React.FormEvent) {
     e.preventDefault();
 
@@ -428,10 +455,12 @@ export default function WalletPage() {
             </div>
 
             {priceLoading && <div className="mb-3 text-xs text-white/50">Loading prices…</div>}
+
             {priceError && (
               <div className="mb-3 text-xs text-white/50">
                 {priceError}{' '}
                 <button
+                  type="button"
                   onClick={loadPrices}
                   className="ml-2 rounded-lg border border-white/20 bg-white/5 px-2 py-1 text-[11px] hover:border-white/40"
                 >
@@ -463,27 +492,19 @@ export default function WalletPage() {
                       >
                         <td className="px-4 py-2 text-left font-medium">
                           <div className="flex items-center gap-2">
-                            {/* your existing CoinIcon component handles /public/coins */}
-                            {/* NOTE: keep using your shared CoinIcon component in other files too */}
-                            <span className="inline-flex">
-                              {/* lazy: import isn’t required here since you already used the image approach elsewhere */}
-                              <img
-                                src={`/coins/${coin.toLowerCase()}.png`}
-                                alt={coin}
-                                className="h-5 w-5 rounded-full border border-white/10 bg-black/40 object-contain"
-                                onError={(e) => {
-                                  (e.currentTarget as HTMLImageElement).style.display = 'none';
-                                }}
-                              />
-                            </span>
+                            <CoinIcon coin={coin} size={18} />
                             <span>{coin}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-2 text-right">{fmt(bal, coin === 'USDT' ? 2 : 6)}</td>
+                        <td className="px-4 py-2 text-right">
+                          {fmt(bal, coin === 'USDT' ? 2 : 6)}
+                        </td>
                         <td className="px-4 py-2 text-right">
                           {coin === 'USDT' ? '1.00' : price ? fmt(price, 4) : '--'}
                         </td>
-                        <td className="px-4 py-2 text-right">{bal === 0 ? '0.00' : fmt(value, 2)}</td>
+                        <td className="px-4 py-2 text-right">
+                          {bal === 0 ? '0.00' : fmt(value, 2)}
+                        </td>
                       </tr>
                     );
                   })}
@@ -590,14 +611,7 @@ export default function WalletPage() {
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <img
-                      src={`/coins/${opt.coin.toLowerCase()}.png`}
-                      alt={opt.coin}
-                      className="h-5 w-5 rounded-full border border-white/10 bg-black/40 object-contain"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
+                    <CoinIcon coin={opt.coin} size={18} />
                     <span className="font-medium">{opt.label}</span>
                   </span>
                   <span className="text-white/40">{'>'}</span>
