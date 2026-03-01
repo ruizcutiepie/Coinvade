@@ -2,11 +2,22 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 
-import authOptions from '@/lib/auth'; // ✅ use the same one you used in src/app/admin/page.tsx
+import authOptions from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { toNumber } from '@/lib/money';
 
 function isAdmin(session: any) {
   return session?.user?.role === 'ADMIN';
+}
+
+function normalizeUser(u: any) {
+  const w = Array.isArray(u.wallets) ? u.wallets[0] : null;
+  const balance = w?.balance != null ? toNumber(w.balance) : 0;
+
+  return {
+    ...u,
+    wallets: [{ coin: 'USDT', balance }],
+  };
 }
 
 // GET /api/admin/users
@@ -26,7 +37,7 @@ export async function GET() {
         role: true,
         createdAt: true,
         wallets: {
-          where: { coin: 'USDT' }, // ✅ only show USDT wallet in this endpoint
+          where: { coin: 'USDT' }, // only USDT shown in this endpoint
           select: { coin: true, balance: true },
           take: 1,
         },
@@ -34,7 +45,7 @@ export async function GET() {
       take: 500,
     });
 
-    return NextResponse.json({ ok: true, users });
+    return NextResponse.json({ ok: true, users: users.map(normalizeUser) });
   } catch (e) {
     console.error('[api/admin/users][GET]', e);
     return NextResponse.json({ ok: false, error: 'Server error' }, { status: 500 });
@@ -77,7 +88,7 @@ export async function PUT(req: Request) {
       },
     });
 
-    return NextResponse.json({ ok: true, user: updated });
+    return NextResponse.json({ ok: true, user: normalizeUser(updated) });
   } catch (e) {
     console.error('[api/admin/users][PUT]', e);
     return NextResponse.json({ ok: false, error: 'Server error' }, { status: 500 });

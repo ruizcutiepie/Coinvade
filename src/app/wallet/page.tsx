@@ -1,7 +1,7 @@
 // src/app/wallet/page.tsx
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import AppShell from '../components/AppShell';
 import CoinIcon from '../components/CoinIcon';
 import useLocalNumber from '../components/useLocalNumber';
@@ -211,64 +211,74 @@ export default function WalletPage() {
     };
   }, [setBalance]);
 
-  /* -------------------- LOAD PRICES (FIXED) -------------------- */
+  /* -------------------- LOAD PRICES (BULK + RELIABLE) -------------------- */
+  const priceAbortRef = useRef<AbortController | null>(null);
+
   async function loadPrices() {
-    let cancelled = false;
+    // Abort any in-flight request (prevents overlap)
+    priceAbortRef.current?.abort();
+    const ac = new AbortController();
+    priceAbortRef.current = ac;
 
     setPriceLoading(true);
     setPriceError(null);
 
     try {
-      // ✅ Use SAME endpoint as TickerCard: /api/price?symbol=BTCUSDT
-      const coinsToFetch: Coin[] = [
-        'BTC',
-        'ETH',
-        'SOL',
-        'XRP',
-        'ADA',
-        'BNB',
-        'DOGE',
-        'DOT',
+      const symbols = [
+        'BTCUSDT',
+        'ETHUSDT',
+        'SOLUSDT',
+        'XRPUSDT',
+        'ADAUSDT',
+        'BNBUSDT',
+        'DOGEUSDT',
+        'DOTUSDT',
       ];
 
-      const results = await Promise.all(
-        coinsToFetch.map(async (c) => {
-          const res = await fetch(`/api/price?symbol=${c}USDT`, { cache: 'no-store' });
-          const data = await res.json();
+      const res = await fetch(`/api/price?symbols=${encodeURIComponent(symbols.join(','))}`, {
+        cache: 'no-store',
+        signal: ac.signal,
+      });
 
-          const price =
-            Number(data?.price) ||
-            Number(data?.lastPrice) ||
-            Number(data?.data?.price) ||
-            0;
+      const data = await res.json();
 
-          if (!res.ok || !price) {
-            throw new Error(`Failed to fetch ${c} price`);
-          }
+      if (!res.ok || !data?.ok || !data?.prices) {
+        throw new Error(data?.error || `Price fetch failed (${res.status})`);
+      }
 
-          return { coin: c, price: Number(price) };
-        })
-      );
-
-      if (cancelled) return;
+      const map = data.prices as Record<string, number>;
 
       setPrices((prev) => {
         const next: PriceMap = { ...prev, USDT: 1, USDC: 1 };
-        for (const r of results) next[r.coin] = r.price;
+
+        next.BTC = Number(map.BTCUSDT || 0);
+        next.ETH = Number(map.ETHUSDT || 0);
+        next.SOL = Number(map.SOLUSDT || 0);
+        next.XRP = Number(map.XRPUSDT || 0);
+        next.ADA = Number(map.ADAUSDT || 0);
+        next.BNB = Number(map.BNBUSDT || 0);
+        next.DOGE = Number(map.DOGEUSDT || 0);
+        next.DOT = Number(map.DOTUSDT || 0);
+
         return next;
       });
     } catch (e: any) {
+      if (String(e?.name) === 'AbortError') return;
+
       console.error('[wallet] price load error:', e);
       setPriceError('Prices temporarily unavailable. Try again in a moment.');
     } finally {
-      if (!cancelled) setPriceLoading(false);
+      if (!ac.signal.aborted) setPriceLoading(false);
     }
   }
 
   useEffect(() => {
     loadPrices();
     const id = setInterval(loadPrices, 20_000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      priceAbortRef.current?.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
