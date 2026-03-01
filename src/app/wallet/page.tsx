@@ -99,7 +99,10 @@ const DEPOSIT_OPTIONS: DepositOption[] = [
     label: 'USDC-ERC20',
     coin: 'USDC',
     networkLabel: 'Ethereum (ERC20)',
-    address: '0x0000000000000000000000000000000000000000',
+    // ✅ same as ETH address (as requested)
+    address: '0x938e129977943edbb568DfDdCdF5332D74D01B3a',
+    // ✅ ensure this file exists in /public/deposit/
+    // If your actual file name differs, change it to match exactly.
     qr: '/deposit/usdcerc20.jpeg',
     description: 'Send only USDC via Ethereum ERC20 network.',
   },
@@ -129,7 +132,8 @@ const PARTNER_CHANNELS = [
 ];
 
 export default function WalletPage() {
-  const [balance, setBalance] = useLocalNumber('coinvade.balance', 0);
+  // ✅ SINGLE SOURCE OF TRUTH KEY (matches Trade page + WalletBalance event)
+  const [balance, setBalance] = useLocalNumber('coinvade.walletBalance', 0);
 
   const [wallet, setWallet] = useLocalJson<WalletState>('coinvade.wallet', {
     BTC: 0,
@@ -183,25 +187,35 @@ export default function WalletPage() {
 
     async function loadUSDTBalance() {
       try {
-        const res = await fetch('/api/wallet', { cache: 'no-store' });
+        const res = await fetch('/api/wallet/info', { cache: 'no-store' });
         if (res.status === 401) {
           if (!cancelled) setBalance(0);
           return;
         }
+
         const j = await res.json();
-        const next = Number(j?.balance ?? 0);
+
+        const nextRaw =
+          j?.wallet?.balance ?? // /api/wallet/info shape
+          j?.balance ??         // fallback (older /api/wallet)
+          0;
+
+        const next = Number(nextRaw);
 
         if (!cancelled) {
           const safe = Number.isFinite(next) ? next : 0;
           setBalance(safe);
+
+          // ✅ keep LS + WalletBalance component in sync
           if (typeof window !== 'undefined') {
+            window.localStorage.setItem('coinvade.walletBalance', String(safe));
             window.dispatchEvent(
               new CustomEvent('coinvade-wallet-updated', { detail: { balance: safe } })
             );
           }
         }
       } catch (e) {
-        console.error('[wallet/page] failed to load /api/wallet', e);
+        console.error('[wallet/page] failed to load /api/wallet/info', e);
       }
     }
 
@@ -295,6 +309,7 @@ export default function WalletPage() {
       const next = Math.max(0, value);
       setBalance(next);
       if (typeof window !== 'undefined') {
+        window.localStorage.setItem('coinvade.walletBalance', String(next));
         window.dispatchEvent(
           new CustomEvent('coinvade-wallet-updated', { detail: { balance: next } })
         );
@@ -512,9 +527,7 @@ export default function WalletPage() {
                         <td className="px-4 py-2 text-right">
                           {coin === 'USDT' ? '1.00' : price ? fmt(price, 4) : '--'}
                         </td>
-                        <td className="px-4 py-2 text-right">
-                          {bal === 0 ? '0.00' : fmt(value, 2)}
-                        </td>
+                        <td className="px-4 py-2 text-right">{bal === 0 ? '0.00' : fmt(value, 2)}</td>
                       </tr>
                     );
                   })}
@@ -630,8 +643,7 @@ export default function WalletPage() {
             </div>
 
             {(() => {
-              const opt =
-                DEPOSIT_OPTIONS.find((d) => d.id === selectedDepositId) ?? DEPOSIT_OPTIONS[0];
+              const opt = DEPOSIT_OPTIONS.find((d) => d.id === selectedDepositId) ?? DEPOSIT_OPTIONS[0];
 
               return (
                 <div className="space-y-4 text-xs">
@@ -641,6 +653,7 @@ export default function WalletPage() {
                       alt={`${opt.label} deposit QR`}
                       className="mb-2 h-48 w-48 rounded-2xl border border-white/15 bg-white object-contain p-2"
                       onError={(e) => {
+                        // hide broken image
                         (e.currentTarget as HTMLImageElement).style.display = 'none';
                       }}
                     />
@@ -671,9 +684,7 @@ export default function WalletPage() {
                   </div>
 
                   <div className="rounded-xl border border-white/10 bg-black/50 p-3">
-                    <div className="mb-2 text-[11px] text-white/60">
-                      Upload payment receipt (optional)
-                    </div>
+                    <div className="mb-2 text-[11px] text-white/60">Upload payment receipt (optional)</div>
                     <label className="block cursor-pointer rounded-xl border border-white/15 bg-black/60 px-3 py-2 text-[11px] text-white/80 hover:border-white/40">
                       <input
                         type="file"
@@ -689,8 +700,7 @@ export default function WalletPage() {
                   </div>
 
                   <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-[11px] text-amber-100">
-                    {opt.description} Sending any other asset or using a different network may result in permanent loss
-                    of funds.
+                    {opt.description} Sending any other asset or using a different network may result in permanent loss of funds.
                   </div>
 
                   <button
@@ -726,8 +736,7 @@ export default function WalletPage() {
         <section className="mx-auto max-w-md rounded-2xl border border-white/10 bg-black/40 p-5 text-sm shadow-[0_0_40px_rgba(0,0,0,.6)]">
           <h2 className="mb-3 text-lg font-semibold">Withdraw</h2>
           <p className="mb-4 text-xs text-white/60">
-            Connect your own wallet by providing a valid payout address. Our team will review and process your
-            withdrawal to this address.
+            Connect your own wallet by providing a valid payout address. Our team will review and process your withdrawal to this address.
           </p>
 
           <form onSubmit={handleWithdraw} className="space-y-4">
@@ -795,8 +804,7 @@ export default function WalletPage() {
             </div>
 
             <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-[11px] text-amber-100">
-              Make sure the address and network are correct. Withdrawals are processed manually by our team using the
-              details you provide.
+              Make sure the address and network are correct. Withdrawals are processed manually by our team using the details you provide.
             </div>
 
             <button
