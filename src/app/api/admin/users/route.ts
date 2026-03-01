@@ -4,20 +4,37 @@ import { getServerSession } from 'next-auth';
 
 import authOptions from '@/lib/auth';
 import prisma from '@/lib/prisma';
-import { toNumber } from '@/lib/money';
 
 function isAdmin(session: any) {
   return session?.user?.role === 'ADMIN';
 }
 
-function normalizeUser(u: any) {
-  const w = Array.isArray(u.wallets) ? u.wallets[0] : null;
-  const balance = w?.balance != null ? toNumber(w.balance) : 0;
+// Robust Decimal -> number converter (works for Prisma Decimal, strings, numbers)
+function decToNumber(v: any): number {
+  if (v == null) return 0;
 
-  return {
-    ...u,
-    wallets: [{ coin: 'USDT', balance }],
-  };
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  // Prisma Decimal usually has toString() and sometimes toNumber()
+  if (typeof v === 'object') {
+    if (typeof v.toNumber === 'function') {
+      try {
+        const n = v.toNumber();
+        return Number.isFinite(n) ? n : 0;
+      } catch {}
+    }
+    if (typeof v.toString === 'function') {
+      const n = Number(v.toString());
+      return Number.isFinite(n) ? n : 0;
+    }
+  }
+
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
 }
 
 // GET /api/admin/users
@@ -37,7 +54,7 @@ export async function GET() {
         role: true,
         createdAt: true,
         wallets: {
-          where: { coin: 'USDT' }, // only USDT shown in this endpoint
+          where: { coin: 'USDT' },
           select: { coin: true, balance: true },
           take: 1,
         },
@@ -45,7 +62,16 @@ export async function GET() {
       take: 500,
     });
 
-    return NextResponse.json({ ok: true, users: users.map(normalizeUser) });
+    // ✅ Normalize wallet balances to plain numbers so UI/admin is consistent
+    const normalized = users.map((u) => ({
+      ...u,
+      wallets: (u.wallets || []).map((w) => ({
+        coin: w.coin,
+        balance: decToNumber((w as any).balance),
+      })),
+    }));
+
+    return NextResponse.json({ ok: true, users: normalized });
   } catch (e) {
     console.error('[api/admin/users][GET]', e);
     return NextResponse.json({ ok: false, error: 'Server error' }, { status: 500 });
@@ -88,7 +114,15 @@ export async function PUT(req: Request) {
       },
     });
 
-    return NextResponse.json({ ok: true, user: normalizeUser(updated) });
+    const normalized = {
+      ...updated,
+      wallets: (updated.wallets || []).map((w) => ({
+        coin: w.coin,
+        balance: decToNumber((w as any).balance),
+      })),
+    };
+
+    return NextResponse.json({ ok: true, user: normalized });
   } catch (e) {
     console.error('[api/admin/users][PUT]', e);
     return NextResponse.json({ ok: false, error: 'Server error' }, { status: 500 });
