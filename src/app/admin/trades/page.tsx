@@ -1,8 +1,13 @@
 // src/app/admin/trades/page.tsx
 import React from 'react';
 import prisma from '@/lib/prisma';
+import type { Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
+
+type TradeWithUser = Prisma.TradeGetPayload<{
+  include: { user: { select: { email: true; name: true } } };
+}>;
 
 function toNumber(v: unknown): number {
   if (v == null) return 0;
@@ -35,7 +40,7 @@ function fmtPrice(n: number) {
 }
 
 export default async function AdminTradesPage() {
-  const trades = await prisma.trade.findMany({
+  const trades: TradeWithUser[] = await prisma.trade.findMany({
     orderBy: { createdAt: 'desc' },
     take: 200,
     include: {
@@ -76,11 +81,10 @@ export default async function AdminTradesPage() {
               </thead>
 
               <tbody>
-                {trades.map((t) => {
+                {trades.map((t: TradeWithUser) => {
                   const stake = toNumber(t.amount);
                   const payout = toNumber(t.payout);
 
-                  // ✅ Fix: Decimal-safe math
                   const pnl = payout - stake;
 
                   const entry = toNumber(t.entryPrice);
@@ -106,9 +110,7 @@ export default async function AdminTradesPage() {
                       </td>
 
                       <td className="px-4 py-3 text-white/80">
-                        <div className="truncate">
-                          {t.user?.email || t.user?.name || t.userId}
-                        </div>
+                        <div className="truncate">{t.user?.email || t.user?.name || t.userId}</div>
                       </td>
 
                       <td className="px-4 py-3 text-white/90">
@@ -131,9 +133,7 @@ export default async function AdminTradesPage() {
                       </td>
 
                       <td className="px-4 py-3 text-center">
-                        <span className={`rounded px-2 py-1 text-xs ${resultClass}`}>
-                          {resultLabel}
-                        </span>
+                        <span className={`rounded px-2 py-1 text-xs ${resultClass}`}>{resultLabel}</span>
                       </td>
                     </tr>
                   );
