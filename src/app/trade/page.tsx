@@ -11,6 +11,9 @@ import RecentTrades, { TradeResult } from '../components/RecentTrades';
 import { useLang, tr } from '../components/useLang';
 import WalletBalance from '../components/WalletBalance';
 
+// ✅ single source of truth for payout math
+import { DURATION_PROFIT_RATE, getEstimatedPayout, getProfitRate } from '@/lib/payout';
+
 type Direction = 'long' | 'short';
 
 type FinishPayload = {
@@ -35,15 +38,16 @@ function fmt(n: number, d = 2) {
   });
 }
 
+// ✅ durations are now a UI list only — profit % comes from payout.ts
 const DURATIONS = [
-  { label: '30 second', seconds: 30, profit: '15%' },
-  { label: '45 second', seconds: 45, profit: '20%' },
-  { label: '60 second', seconds: 60, profit: '35%' },
-  { label: '90 second', seconds: 90, profit: '65%' },
-  { label: '120 second', seconds: 120, profit: '90%' },
-  { label: '180 second', seconds: 180, profit: '92%' },
-  { label: '240 second', seconds: 240, profit: '93%' },
-  { label: '300 second', seconds: 300, profit: '95%' },
+  { label: '30 second', seconds: 30 },
+  { label: '45 second', seconds: 45 },
+  { label: '60 second', seconds: 60 },
+  { label: '90 second', seconds: 90 },
+  { label: '120 second', seconds: 120 },
+  { label: '180 second', seconds: 180 },
+  { label: '240 second', seconds: 240 },
+  { label: '300 second', seconds: 300 },
 ];
 
 const PRESETS = [10, 20, 50, 100, 250];
@@ -87,7 +91,9 @@ export default function TradePage() {
   } | null>(null);
 
   const [insufficientOpen, setInsufficientOpen] = useState(false);
-  const [insufficientMsg, setInsufficientMsg] = useState<string>('Not enough balance for this trade.');
+  const [insufficientMsg, setInsufficientMsg] = useState<string>(
+    'Not enough balance for this trade.'
+  );
 
   const [openingTrade, setOpeningTrade] = useState(false);
   const [resolvingTrade, setResolvingTrade] = useState(false);
@@ -96,16 +102,26 @@ export default function TradePage() {
   const activeTradeIdRef = useRef<string | null>(null);
   const entryPriceRef = useRef<number | null>(null);
 
-  const estPayout = useMemo(
-    () => (Number.isFinite(amount) && amount > 0 ? amount * 1.8 : 0),
-    [amount]
-  );
+  // ✅ use payout lib (single source of truth)
+  const profitRate = useMemo(() => getProfitRate(duration), [duration]);
+
+  // ✅ recalculates off (amount, duration) directly
+  const estPayout = useMemo(() => {
+    return getEstimatedPayout(amount, duration);
+  }, [amount, duration]);
+
+  // ✅ show profit explicitly so changes are obvious
+  const estProfit = useMemo(() => {
+    const s = Number(amount);
+    if (!Number.isFinite(s) || s <= 0) return 0;
+    return s * profitRate;
+  }, [amount, profitRate]);
 
   const pairLabel = pair.includes('/') ? pair : `${pair.replace('USDT', '')}/USDT`;
 
-  const tradeLocked = openingTrade || resolvingTrade || confirmOpen || showCountdown || insufficientOpen;
+  const tradeLocked =
+    openingTrade || resolvingTrade || confirmOpen || showCountdown || insufficientOpen;
 
-  // ✅ TradingView chart tied to selected pair
   const tvSrc = useMemo(() => {
     const symbol = `BINANCE:${pair.replace('/', '').toUpperCase()}`;
     const params = new URLSearchParams({
@@ -137,7 +153,9 @@ export default function TradePage() {
 
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('coinvade.walletBalance', String(next));
-          window.dispatchEvent(new CustomEvent('coinvade-wallet-updated', { detail: { balance: next } }));
+          window.dispatchEvent(
+            new CustomEvent('coinvade-wallet-updated', { detail: { balance: next } })
+          );
         }
       } else {
         if (balance == null) setBalance(0);
@@ -182,7 +200,9 @@ export default function TradePage() {
       if (stored != null && !Number.isNaN(Number(stored))) {
         const next = Number(stored);
         setBalance(next);
-        window.dispatchEvent(new CustomEvent('coinvade-wallet-updated', { detail: { balance: next } }));
+        window.dispatchEvent(
+          new CustomEvent('coinvade-wallet-updated', { detail: { balance: next } })
+        );
       } else {
         loadWallet();
       }
@@ -208,10 +228,13 @@ export default function TradePage() {
       openInsufficient('Invalid stake amount. Please enter a valid amount.');
       return;
     }
-    if (!Number.isFinite(duration) || duration <= 0) {
-      openInsufficient('Invalid duration. Please select a duration.');
+
+    // ✅ validate duration using shared table
+    if (!Number.isFinite(duration) || duration <= 0 || DURATION_PROFIT_RATE[duration] == null) {
+      openInsufficient('Invalid duration. Please select a supported duration.');
       return;
     }
+
     if (balance == null) {
       openInsufficient('Loading balance… please try again in a moment.');
       return;
@@ -256,7 +279,8 @@ export default function TradePage() {
       }
 
       activeTradeIdRef.current = String(j.trade?.id || '');
-      entryPriceRef.current = j.trade?.entryPrice != null ? Number(j.trade.entryPrice) : null;
+      entryPriceRef.current =
+        j.trade?.entryPrice != null ? Number(j.trade.entryPrice) : null;
 
       if (j.wallet) {
         const nextBalance = Number(j.wallet.balance ?? 0);
@@ -264,7 +288,9 @@ export default function TradePage() {
 
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('coinvade.walletBalance', String(nextBalance));
-          window.dispatchEvent(new CustomEvent('coinvade-wallet-updated', { detail: { balance: nextBalance } }));
+          window.dispatchEvent(
+            new CustomEvent('coinvade-wallet-updated', { detail: { balance: nextBalance } })
+          );
         }
       }
 
@@ -328,8 +354,11 @@ export default function TradePage() {
       const payout = Number(serverTrade.payout ?? 0) || 0;
       const exitPrice = Number(serverTrade.exitPrice ?? serverTrade.closePrice ?? 0) || 0;
 
+      // ✅ use shared rate getter
+      const r = getProfitRate(Number(serverTrade.duration ?? res.duration));
+
       let delta = 0;
-      if (won === true) delta = stake * 0.8;
+      if (won === true) delta = stake * r;
       else if (won === false) delta = -stake;
       else delta = 0;
 
@@ -337,7 +366,9 @@ export default function TradePage() {
         id: String(serverTrade.id),
         ts: Date.now(),
         pair: String(serverTrade.pair || res.pair),
-        direction: (String(serverTrade.direction || '').toLowerCase() === 'short' ? 'short' : 'long') as any,
+        direction: (String(serverTrade.direction || '').toLowerCase() === 'short'
+          ? 'short'
+          : 'long') as any,
         amount: stake,
         duration: Number(serverTrade.duration || res.duration),
         entryPrice: Number(serverTrade.entryPrice || entryPriceRef.current || 0),
@@ -354,7 +385,9 @@ export default function TradePage() {
 
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('coinvade.walletBalance', String(nextBalance));
-          window.dispatchEvent(new CustomEvent('coinvade-wallet-updated', { detail: { balance: nextBalance } }));
+          window.dispatchEvent(
+            new CustomEvent('coinvade-wallet-updated', { detail: { balance: nextBalance } })
+          );
         }
       } else {
         loadWallet();
@@ -378,7 +411,6 @@ export default function TradePage() {
       </div>
 
       <section className="mx-auto max-w-6xl rounded-2xl border border-white/10 bg-black/40 p-5 shadow-[0_0_40px_rgba(0,0,0,.6)]">
-        {/* ✅ Market Candlestick */}
         <div className="mb-6">
           <div className="mb-2 flex items-center justify-between">
             <div className="text-sm font-semibold text-white">Market (Candlestick)</div>
@@ -409,7 +441,6 @@ export default function TradePage() {
           </div>
         </div>
 
-        {/* Durations */}
         <div className="mb-6 flex flex-wrap gap-3">
           {DURATIONS.map((d) => (
             <button
@@ -424,13 +455,15 @@ export default function TradePage() {
             >
               <div className="text-sm font-semibold text-white">{d.label}</div>
               <div className="mt-1 text-[11px] text-white/60">
-                {tr('trade.profitRate', lang)} <span className="ml-1 text-cyan-300">{d.profit}</span>
+                {tr('trade.profitRate', lang)}{' '}
+                <span className="ml-1 text-cyan-300">
+                  {Math.round(getProfitRate(d.seconds) * 100)}%
+                </span>
               </div>
             </button>
           ))}
         </div>
 
-        {/* Mode */}
         <div className="mb-4 text-sm text-white/60">{tr('trade.transactionMode', lang)}</div>
         <div className="mb-6 flex gap-3">
           <button
@@ -457,7 +490,6 @@ export default function TradePage() {
           </button>
         </div>
 
-        {/* Pair */}
         <div className="mb-4 max-w-xs">
           <label className="mb-1 block text-xs text-white/60">Trading pair</label>
           <select
@@ -479,7 +511,6 @@ export default function TradePage() {
           </div>
         </div>
 
-        {/* Amount */}
         <div className="mb-2 text-sm text-white/60">{tr('trade.openingQty', lang)}</div>
         <div className="mb-4">
           <input
@@ -512,11 +543,19 @@ export default function TradePage() {
             ))}
           </div>
 
-          <div className="mt-2 text-[11px] text-white/60">
-            Estimated payout:{' '}
-            <span className="text-cyan-300">
-              {fmt(estPayout)} {mode}
-            </span>
+          <div className="mt-2 space-y-1 text-[11px] text-white/60">
+            <div>
+              Estimated profit:{' '}
+              <span className="text-cyan-300">
+                +{fmt(estProfit)} {mode} ({Math.round(profitRate * 100)}%)
+              </span>
+            </div>
+            <div>
+              Estimated payout:{' '}
+              <span className="text-cyan-300">
+                {fmt(estPayout)} {mode}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -527,7 +566,6 @@ export default function TradePage() {
           </span>
         </div>
 
-        {/* Buy / Sell */}
         <div className="mb-4 flex gap-3">
           <button
             onClick={() => handleOpenConfirm('long')}
@@ -551,14 +589,17 @@ export default function TradePage() {
 
         <div className="mt-4 border-t border-white/10 pt-3 text-sm text-white/70">
           <div className="mb-3 flex gap-6">
-            <span className="border-b-2 border-cyan-400 pb-1 text-cyan-200">{tr('trade.inTransaction', lang)}</span>
+            <span className="border-b-2 border-cyan-400 pb-1 text-cyan-200">
+              {tr('trade.inTransaction', lang)}
+            </span>
             <span className="pb-1 text-white/40">{tr('trade.historyTab', lang)}</span>
           </div>
 
           {run && showCountdown ? (
             <div className="text-xs text-white/60">
               Trade running on <span className="text-white">{pairLabel}</span> for{' '}
-              <span className="text-cyan-300">{Math.round(duration)}s</span> — check the countdown modal.
+              <span className="text-cyan-300">{Math.round(duration)}s</span> — check the countdown
+              modal.
             </div>
           ) : resolvingTrade ? (
             <div className="text-xs text-white/60">Resolving trade… please wait.</div>
@@ -593,13 +634,18 @@ export default function TradePage() {
                 <div>
                   <div className="text-[11px] text-white/60">{tr('confirm.direction', lang)}</div>
                   <div className="text-sm font-semibold text-white">
-                    {pendingTrade.direction === 'long' ? tr('btn.buyLong', lang) : tr('btn.sellShort', lang)}
+                    {pendingTrade.direction === 'long'
+                      ? tr('btn.buyLong', lang)
+                      : tr('btn.sellShort', lang)}
                   </div>
                 </div>
                 <div>
                   <div className="text-[11px] text-white/60">{tr('confirm.amount', lang)}</div>
                   <div className="text-sm font-semibold text-white">
-                    {pendingTrade.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                    {pendingTrade.amount.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{' '}
                     {mode}
                   </div>
                 </div>
@@ -613,7 +659,13 @@ export default function TradePage() {
             <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3 text-xs text-cyan-100">
               {tr('confirm.estimatedPayout', lang)}{' '}
               <span className="font-semibold">
-                {(pendingTrade.amount * 1.8).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                {getEstimatedPayout(pendingTrade.amount, pendingTrade.duration).toLocaleString(
+                  undefined,
+                  {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }
+                )}{' '}
                 {mode}
               </span>
             </div>
@@ -650,7 +702,9 @@ export default function TradePage() {
 
       <Modal open={insufficientOpen} onClose={() => setInsufficientOpen(false)} title="Notice">
         <div className="space-y-4 text-sm">
-          <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-white/80">{insufficientMsg}</div>
+          <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-white/80">
+            {insufficientMsg}
+          </div>
 
           <div className="flex justify-end gap-3">
             <button
