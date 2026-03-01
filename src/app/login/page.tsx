@@ -19,7 +19,6 @@ export default function LoginPage() {
     setSubmitting(true);
     setError(null);
 
-    // ✅ IMPORTANT: include callbackUrl and use returned res.url
     const res = await signIn('credentials', {
       redirect: false,
       email,
@@ -29,11 +28,10 @@ export default function LoginPage() {
 
     setSubmitting(false);
 
-    // ✅ Helps us see the truth in the browser console
     console.log('signIn response:', res);
 
     if (!res) {
-      setError('No response from sign in. Open Network tab and check /api/auth/callback/credentials.');
+      setError('No response from sign in. Check Network tab.');
       return;
     }
 
@@ -42,8 +40,11 @@ export default function LoginPage() {
       return;
     }
 
-    // ✅ Use replace + refresh so middleware/app-router sees the new session right away
-    router.replace(res.url ?? '/trade');
+    // ✅ If NextAuth gives a useless URL, ignore it
+    const badUrl = res.url?.includes('/api/auth/signin');
+    const nextUrl = badUrl ? '/trade' : (res.url ?? '/trade');
+
+    router.replace(nextUrl);
     router.refresh();
   }
 

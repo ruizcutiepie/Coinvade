@@ -19,13 +19,7 @@ export const authOptions: NextAuthOptions = {
 
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
-          select: {
-            id: true,
-            email: true,
-            passwordHash: true,
-            role: true,
-            kycStatus: true,
-          },
+          select: { id: true, email: true, passwordHash: true, role: true },
         });
 
         if (!user?.passwordHash) return null;
@@ -33,38 +27,17 @@ export const authOptions: NextAuthOptions = {
         const ok = await compare(credentials.password, user.passwordHash);
         if (!ok) return null;
 
-        // Put only what you need into the JWT
-        return {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          kycStatus: user.kycStatus,
-        } as any;
+        return { id: user.id, email: user.email, role: user.role } as any;
       },
     }),
   ],
 
   callbacks: {
     async jwt({ token, user }) {
-      // Initial sign-in
       if (user) {
         token.id = (user as any).id;
         token.role = (user as any).role;
-        token.kycStatus = (user as any).kycStatus;
       }
-
-      // Optional: keep token fresh (uncomment if you want KYC changes to reflect without re-login)
-      // if (token?.id) {
-      //   const dbUser = await prisma.user.findUnique({
-      //     where: { id: token.id as string },
-      //     select: { role: true, kycStatus: true },
-      //   });
-      //   if (dbUser) {
-      //     token.role = dbUser.role;
-      //     token.kycStatus = dbUser.kycStatus;
-      //   }
-      // }
-
       return token;
     },
 
@@ -72,9 +45,21 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         (session.user as any).id = token.id;
         (session.user as any).role = token.role;
-        (session.user as any).kycStatus = token.kycStatus;
       }
       return session;
+    },
+
+    // ✅ THIS IS THE FIX:
+    // Force NextAuth to redirect to real pages, not /api/auth/signin?csrf=true
+    async redirect({ url, baseUrl }) {
+      // If NextAuth gives us a relative URL, make it absolute
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+
+      // If NextAuth gives us a URL on the same site, allow it
+      if (url.startsWith(baseUrl)) return url;
+
+      // Otherwise, always go home/trade (prevents weird redirects)
+      return `${baseUrl}/trade`;
     },
   },
 
