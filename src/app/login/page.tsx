@@ -10,7 +10,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPw, setShowPw] = useState(false); // ✅ NEW
+  const [showPw, setShowPw] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,20 +19,32 @@ export default function LoginPage() {
     setSubmitting(true);
     setError(null);
 
+    // ✅ IMPORTANT: include callbackUrl and use returned res.url
     const res = await signIn('credentials', {
       redirect: false,
       email,
       password,
+      callbackUrl: '/trade',
     });
 
     setSubmitting(false);
 
-    if (res?.error) {
+    // ✅ Helps us see the truth in the browser console
+    console.log('signIn response:', res);
+
+    if (!res) {
+      setError('No response from sign in. Open Network tab and check /api/auth/callback/credentials.');
+      return;
+    }
+
+    if (res.error) {
       setError('Invalid email or password.');
       return;
     }
 
-    router.push('/trade');
+    // ✅ Use replace + refresh so middleware/app-router sees the new session right away
+    router.replace(res.url ?? '/trade');
+    router.refresh();
   }
 
   return (
@@ -62,7 +74,6 @@ export default function LoginPage() {
           <div>
             <label className="mb-1 block text-xs text-white/60">Password</label>
 
-            {/* ✅ Password + View toggle */}
             <div className="relative">
               <input
                 type={showPw ? 'text' : 'password'}
@@ -104,7 +115,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* ✅ Register link stays */}
         <p className="mt-4 text-center text-xs text-white/60">
           Don&apos;t have an account?{' '}
           <Link

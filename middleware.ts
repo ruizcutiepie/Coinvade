@@ -1,9 +1,10 @@
+// middleware.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  const { pathname, search } = req.nextUrl;
 
   // allow next internals
   if (pathname.startsWith("/_next") || pathname === "/favicon.ico") {
@@ -23,10 +24,20 @@ export async function middleware(req: NextRequest) {
 
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
 
+  // ✅ TEMP DEBUG LOGS (shows in Vercel logs)
+  console.log("[middleware]", {
+    path: pathname,
+    hasToken: !!token,
+    role: (token as any)?.role,
+  });
+
   if (!token) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
-    url.searchParams.set("callbackUrl", pathname);
+
+    // ✅ keep full callbackUrl (pathname + query)
+    url.searchParams.set("callbackUrl", `${pathname}${search || ""}`);
+
     return NextResponse.redirect(url);
   }
 
