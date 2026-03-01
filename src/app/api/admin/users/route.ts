@@ -5,34 +5,30 @@ import { getServerSession } from 'next-auth';
 import authOptions from '@/lib/auth';
 import prisma from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 function isAdmin(session: any) {
   return session?.user?.role === 'ADMIN';
 }
 
-// Robust Decimal -> number converter (works for Prisma Decimal, strings, numbers)
 function decToNumber(v: any): number {
   if (v == null) return 0;
-
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
   if (typeof v === 'string') {
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
   }
-
-  // Prisma Decimal usually has toString() and sometimes toNumber()
+  if (typeof v === 'bigint') return Number(v);
   if (typeof v === 'object') {
-    if (typeof v.toNumber === 'function') {
-      try {
-        const n = v.toNumber();
-        return Number.isFinite(n) ? n : 0;
-      } catch {}
-    }
-    if (typeof v.toString === 'function') {
-      const n = Number(v.toString());
+    // Prisma Decimal has .toNumber()
+    if (typeof (v as any).toNumber === 'function') {
+      const n = (v as any).toNumber();
       return Number.isFinite(n) ? n : 0;
     }
+    // some decimals stringify cleanly
+    const n = Number(String(v));
+    return Number.isFinite(n) ? n : 0;
   }
-
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
@@ -62,7 +58,6 @@ export async function GET() {
       take: 500,
     });
 
-    // ✅ Normalize wallet balances to plain numbers so UI/admin is consistent
     const normalized = users.map((u) => ({
       ...u,
       wallets: (u.wallets || []).map((w) => ({
