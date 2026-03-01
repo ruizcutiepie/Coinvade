@@ -36,6 +36,13 @@ enum WithdrawStatus {
   PAID
 }
 
+enum KycStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
 // =======================
 // MODELS
 // =======================
@@ -47,6 +54,9 @@ model User {
   passwordHash String?
   role         Role     @default(USER)
   createdAt    DateTime @default(now())
+
+  kycStatus    KycStatus @default(UNVERIFIED)
+  kycUpdatedAt DateTime?
 
   wallets     Wallet[]
   trades      Trade[]
